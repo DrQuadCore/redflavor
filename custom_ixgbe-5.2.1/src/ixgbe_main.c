@@ -37,6 +37,9 @@
 #include <linux/tcp.h>
 #include <linux/pkt_sched.h>
 #include <linux/ipv6.h>
+// YHOON~
+#include <linux/fs.h>
+// ~YHOON
 #ifdef NETIF_F_TSO
 #include <net/checksum.h>
 #ifdef NETIF_F_TSO6
@@ -1251,8 +1254,10 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 {
 	struct page *page = bi->page;
 	dma_addr_t dma;
+#if 0
   void * tmp_addr;
   void * from_addr;
+#endif
 
 	/* since we are recycling buffers we should seldom need to alloc */
 	if (likely(page))
@@ -1266,7 +1271,7 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 		return false;
 	}
 
-#if 1 // YHOON
+#if 0 // YHOON
   pr_info("[%s][%d] YHOON, set_page_address 1 count: %d\n", __FUNCTION__, __LINE__, count);
   from_addr = 0xc0080000+0x1000*count;
   //tmp_addr = ioremap(0xc0080000+0x1000*count,0x1000);
@@ -1278,7 +1283,7 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 #endif
 
 	/* map page for use */
-#if 1 // yhoon
+#if 0 // yhoon
 	dma = dma_map_page_attrs(rx_ring->dev, page, 0,
 				 ixgbe_rx_pg_size(rx_ring),
 				 DMA_FROM_DEVICE,
@@ -1286,10 +1291,10 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
   pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
   pr_info("[%s][%d] YHOON, dma: %016llx virt_to_phys:%016llx\n", __FUNCTION__, __LINE__, dma, virt_to_phys(dma));
 #else
-  //dma = ioremap(0xc0080000,64*sizeof(uint64_t));
-  dma = ioremap(0xc0080000+4096*count,64*sizeof(uint64_t));
+  // YHOON
+  dma = 0xc0080000+4096*count;
   count++;
-  pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
+  //pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
   if(!dma)
     pr_info("[%s][%d] YHOON ERROR !dma\n", __FUNCTION__, __LINE__);
 
@@ -1330,15 +1335,13 @@ void ixgbe_alloc_rx_buffers(struct ixgbe_ring *rx_ring, u16 cleaned_count)
 	u16 bufsz;
 #endif
 
-  pr_info("[%s][%d] YHOON \n", __FUNCTION__, __LINE__);
-
 	/* nothing to do */
 	if (!cleaned_count)
 		return;
 
 	rx_desc = IXGBE_RX_DESC(rx_ring, i);
 	bi = &rx_ring->rx_buffer_info[i];
-  pr_info("[%s][%d] YHOON, current dma:%016llx\n", __FUNCTION__, __LINE__, bi->dma);
+  //pr_info("[%s][%d] YHOON, current dma:%016llx\n", __FUNCTION__, __LINE__, bi->dma);
 	i -= rx_ring->count;
 #ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
 
@@ -11903,10 +11906,86 @@ bool ixgbe_is_ixgbe(struct pci_dev *pcidev)
  * ixgbe_init_module is the first routine called when the driver is
  * loaded. All it does is register with the PCI subsystem.
  **/
+// YHOON
+static int ixgbe_major = 0;
+#define DEVNAME "ixgbe"
+
+static int ixgbe_test(void __user *_params)
+{
+  uint64_t user_addr; 
+  int ret = 0;
+
+  if (copy_from_user(&user_addr, _params, sizeof(uint64_t))) {
+    pr_info("[%s][%d] copy_from_user failed \n", __FUNCTION__, __LINE__);
+    ret = -1;
+  }
+  pr_info("[%s][%d] %llu \n", __FUNCTION__, __LINE__, user_addr);
+  return ret;
+}
+
+static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg)
+{
+  int ret = 0;
+  //uint64_t user_addr = (uint64_t) filp->private_data;
+  //my_info_t *info = filp->private_data;
+  void __user *argp = (void __user *)arg;
+  pr_info("[%s][%d] YHOON HERE!!!!!!!!!!\n", __FUNCTION__, __LINE__);
+  switch (cmd) {
+    case 0:
+      pr_info("[%s][%d] YHOON IXGBE_IOTCL_YHOON case 0\n", __FUNCTION__, __LINE__);
+      ret = ixgbe_test(argp);
+      break;
+
+    default:
+      pr_info("[%s][%d] YHOON default\n", __FUNCTION__, __LINE__);
+  }
+  return ret;
+}
+
+static long ixgbe_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+  return ixgbe_ioctl_yhoon(0, filp, cmd, arg);
+}
+
+static int ixgbe_open_yhoon(struct inode *inode, struct file *filp)
+{
+  unsigned int minor = MINOR(inode->i_rdev);
+  int ret = 0;
+  //uint64_t user_mem_addr = 0;
+
+  pr_info("[%s][%d] YHOON minor=%d\n", __FUNCTION__, __LINE__, minor);
+  if(minor >= 1) {
+    pr_info("[%s][%d] YHOON device minor number too big!\n", __FUNCTION__, __LINE__);
+    ret = -ENXIO;
+    goto out;
+  }
+  //filp->private_data = &user_mem_addr;
+
+out:
+  return ret;
+}
+
+
+struct file_operations ixgbe_fops = {
+  .unlocked_ioctl    = ixgbe_unlocked_ioctl,
+  .open     = ixgbe_open_yhoon,
+};
+
+
 static int __init ixgbe_init_module(void)
 {
 	int ret;
+  // YHOON~
+  int result;
+  result = register_chrdev(ixgbe_major, DEVNAME,  &ixgbe_fops);
+  if (result < 0) {
+     pr_info("[%s][%d] YHOON %d\n", __FUNCTION__, __LINE__, ixgbe_major);
+  }
+  if (ixgbe_major == 0) ixgbe_major = result; /* dynamic */
+  pr_info("[%s][%d] YHOON device registered with major number %d\n", __FUNCTION__, __LINE__, ixgbe_major);
 	pr_info("YHOON %s - version %s\n", ixgbe_driver_string, ixgbe_driver_version);
+	//~YHOON
+
 	pr_info("%s\n", ixgbe_copyright);
 
 	ixgbe_wq = create_singlethread_workqueue(ixgbe_driver_name);
@@ -11964,6 +12043,8 @@ static void __exit ixgbe_exit_module(void)
 #ifdef HAVE_IXGBE_DEBUG_FS
 	ixgbe_dbg_exit();
 #endif /* HAVE_IXGBE_DEBUG_FS */
+  // YHOON
+  unregister_chrdev(ixgbe_major, DEVNAME);
 }
 
 #if IS_ENABLED(CONFIG_DCA)
