@@ -114,6 +114,13 @@ int my_pin_buffer(my_t g, unsigned long addr, size_t size, uint64_t p2p_token, u
     params.va_space = va_space;
     params.handle = 0;
 
+    // YHOON~ for test
+    const char *myinode = "/dev/ixgbe";
+    int fd = open(myinode, O_RDWR);
+    uint64_t ptr = 1234;
+    retcode = ioctl(fd, 0, &ptr);
+    // ~YHOON
+
     retcode = ioctl(g->fd, MYDRV_IOC_PIN_BUFFER, &params);
     if (0 != retcode) {
         ret = errno;
@@ -182,6 +189,7 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
   const int DUMP_SIZE = 30;
   for(int i = 0; i < size; i++) {
     if((h_mem[i] == 0x08 && h_mem[i+1] == 0x06)) { // || (h_mem[i] == 0x00 && h_mem[i+1] == 0x08) ) {
+      i = i+2;
       printf("\n\n\n[%s][%d] PACKET BEGINS-------------------------------------\n", __FUNCTION__, __LINE__);
       printf("[%s][%d] We found ethernet type 0x%02x%02x on %dth memory.\n", __FUNCTION__ , __LINE__, h_mem[i], h_mem[i+1],i);
       
@@ -192,7 +200,7 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
       }
       printf("\n");
       //struct iphdr* iph = reinterpret_cast<iphdr*>(h_mem+i+2);
-      struct arphdr *arph = reinterpret_cast<arphdr*>(h_mem+i+2);
+      struct arphdr *arph = reinterpret_cast<arphdr*>(h_mem+i);
       //struct iphdr* iph = (struct iphdr *)(h_mem+i+2);
       //printf("[%s][%d] pid:[%x], protocol:[%x]\n", __FUNCTION__, __LINE__, iph->id, iph->protocol);
       //uint8_t *t = (uint8_t *)&iph->saddr;

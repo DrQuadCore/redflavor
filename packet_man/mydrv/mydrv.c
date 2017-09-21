@@ -162,7 +162,7 @@ static int mydrv_test(my_info_t *info, void __user *_params)
     my_mr_t *mr = NULL;
     cycles_t ta, tb;
 
-    uint64_t* tmp;
+    //uint64_t* tmp;
 
     struct pci_dev* pdev = NULL;
     pdev = pci_get_device(VENDOR_ID, PROD_ID, pdev);
@@ -262,11 +262,11 @@ static int mydrv_test(my_info_t *info, void __user *_params)
         goto out;
     }
     {
-        int i;
+        //int i;
         my_dbg("page table entries: %d\n", page_table->entries);
-        for (i=0; i<page_table->entries; ++i) {
-            my_dbg("page[%d]=0x%016llx\n", i, page_table->pages[i]->physical_address);
-        }
+        //for (i=0; i<page_table->entries; ++i) {
+        //    my_dbg("page[%d]=0x%016llx\n", i, page_table->pages[i]->physical_address);
+        //}
     }
 
 
