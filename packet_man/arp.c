@@ -1,10 +1,55 @@
+#include <stdio.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <linux/if_ether.h>
+#include <sys/queue.h> // HONESTCHOI : TAILQ, etc..
+#include <string.h> // HONESTCHOI : memset
+#include <stdlib.h> // HONESTCHOI : free
 
-#include "mtcp.h"
+// HONESTCHOI :  Begins - Copy from tcp source in mTCP
+#define TCP_SEQ_LT(a,b)                 ((int32_t)((a)-(b)) < 0)
+#define TCP_SEQ_LEQ(a,b)                ((int32_t)((a)-(b)) <= 0)
+#define TCP_SEQ_GT(a,b)                 ((int32_t)((a)-(b)) > 0)
+#define TCP_SEQ_GEQ(a,b)                ((int32_t)((a)-(b)) >= 0)
+#define TCP_SEQ_BETWEEN(a,b,c)  (TCP_SEQ_GEQ(a,b) && TCP_SEQ_LEQ(a,c))
+/* convert timeval to timestamp (precision: 1 ms) */
+#define HZ                                              1000
+#define TIME_TICK                               (1000000/HZ)            // in us
+#define TIMEVAL_TO_TS(t)                (uint32_t)((t)->tv_sec * HZ + \
+                                                                ((t)->tv_usec / TIME_TICK))
+
+#define TS_TO_USEC(t)                   ((t) * TIME_TICK)
+#define TS_TO_MSEC(t)                   (TS_TO_USEC(t) / 1000)
+
+#define USEC_TO_TS(t)                   ((t) / TIME_TICK)
+#define MSEC_TO_TS(t)                   (USEC_TO_TS((t) * 1000))
+#define SEC_TO_TS(t)                    (t * HZ)
+
+#define SEC_TO_USEC(t)                  ((t) * 1000000)
+#define SEC_TO_MSEC(t)                  ((t) * 1000)
+#define MSEC_TO_USEC(t)                 ((t) * 1000)
+#define USEC_TO_SEC(t)                  ((t) / 1000000)
+//#define TCP_TIMEWAIT                  (MSEC_TO_USEC(5000) / TIME_TICK)        // 5s
+#define TCP_TIMEWAIT                    0
+#define TCP_INITIAL_RTO                 (MSEC_TO_USEC(500) / TIME_TICK)         // 500ms
+#define TCP_FIN_RTO                             (MSEC_TO_USEC(500) / TIME_TICK)         // 500ms
+#define TCP_TIMEOUT                             (MSEC_TO_USEC(30000) / TIME_TICK)       // 30s
+
+#define TCP_MAX_RTX                             16
+#define TCP_MAX_SYN_RETRY               7
+#define TCP_MAX_BACKOFF                 7
+// HONESTCHOI :  Ends   - Copy from tcp source in mTCP
+
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE 
+#define FALSE 0
+#endif
+// #include "mtcp.h"
 #include "arp.h"
-#include "eth_out.h"
-#include "debug.h"
+// #include "eth_out.h"
+// #include "debug.h"
 
 #define ARP_PAD_LEN 18			/* arp pad length to fit 64B packet size */
 #define ARP_TIMEOUT_SEC 1		/* 1 second arp timeout */
@@ -60,6 +105,7 @@ DumpARPPacket(struct arphdr *arph);
 int 
 InitARPTable()
 {
+#if 0 // HONESTCHOI : Unnecessary ?
 	CONFIG.arp.entries = 0;
 
 	CONFIG.arp.entry = (struct arp_entry *)
@@ -68,7 +114,7 @@ InitARPTable()
 		perror("calloc");
 		return -1;
 	}
-
+#endif 
 	TAILQ_INIT(&g_arpm.list);
 	pthread_mutex_init(&g_arpm.lock, NULL);
 
@@ -80,12 +126,14 @@ GetHWaddr(uint32_t ip)
 {
 	int i;
 	unsigned char *haddr = NULL;
+#if 0 // HONESTCHOI : TODO
 	for (i = 0; i < CONFIG.eths_num; i++) {
 		if (ip == CONFIG.eths[i].ip_addr) {
 			haddr = CONFIG.eths[i].haddr;
 			break;
 		}	
 	}
+#endif
 
 	return haddr;
 }
@@ -97,6 +145,7 @@ GetDestinationHWaddr(uint32_t dip)
 	int prefix = 0;
 	int i;
 
+#if 0 // HONESTCHOI : TODO
 	/* Longest prefix matching */
 	for (i = 0; i < CONFIG.arp.entries; i++) {
 		if (CONFIG.arp.entry[i].prefix == 1) {
@@ -115,23 +164,27 @@ GetDestinationHWaddr(uint32_t dip)
 			}
 		}
 	}
-
+#endif
 	return d_haddr;
 }
 /*----------------------------------------------------------------------------*/
 static int 
-ARPOutput(struct mtcp_manager *mtcp, int nif, int opcode,
+ARPOutput(int nif, int opcode,
 		uint32_t dst_ip, unsigned char *dst_haddr, unsigned char *target_haddr)
 {
 	if (!dst_haddr)
 		return -1;
 
 	/* Allocate a buffer */
+#if 0
 	struct arphdr *arph = (struct arphdr *)EthernetOutput(mtcp, 
 			ETH_P_ARP, nif, dst_haddr, sizeof(struct arphdr));
 	if (!arph) {
 		return -1;
 	}
+#else 
+	struct arphdr *arph = NULL;
+#endif
 	/* Fill arp header */
 	arph->ar_hrd = htons(arp_hrd_ethernet);
 	arph->ar_pro = htons(ETH_P_IP);
@@ -140,10 +193,14 @@ ARPOutput(struct mtcp_manager *mtcp, int nif, int opcode,
 	arph->ar_op = htons(opcode);
 
 	/* Fill arp body */
+#if 0 // HONESTCHOI : TODO
 	arph->ar_sip = CONFIG.eths[nif].ip_addr;
+#endif 
 	arph->ar_tip = dst_ip;
 
+#if 0 // HONESTCHOI : TODO
 	memcpy(arph->ar_sha, CONFIG.eths[nif].haddr, arph->ar_hln);
+#endif
 	if (target_haddr) {
 		memcpy(arph->ar_tha, target_haddr, arph->ar_hln);
 	} else {
@@ -161,6 +218,7 @@ ARPOutput(struct mtcp_manager *mtcp, int nif, int opcode,
 int 
 RegisterARPEntry(uint32_t ip, const unsigned char *haddr)
 {
+#if 0 // HONESTCHOI : Unnecessary 
 	int idx = CONFIG.arp.entries;
 	
 	CONFIG.arp.entry[idx].prefix = 32;
@@ -173,12 +231,12 @@ RegisterARPEntry(uint32_t ip, const unsigned char *haddr)
 
 	TRACE_CONFIG("Learned new arp entry.\n");
 	PrintARPTable();
-
+#endif
 	return 0;
 }
 /*----------------------------------------------------------------------------*/
 void 
-RequestARP(mtcp_manager_t mtcp, uint32_t ip, int nif, uint32_t cur_ts)
+RequestARP(uint32_t ip, int nif, uint32_t cur_ts)
 {
 	struct arp_queue_entry *ent;
 	unsigned char haddr[ETH_ALEN];
@@ -203,12 +261,11 @@ RequestARP(mtcp_manager_t mtcp, uint32_t ip, int nif, uint32_t cur_ts)
 	/* else, broadcast arp request */
 	memset(haddr, 0xFF, ETH_ALEN);
 	memset(taddr, 0x00, ETH_ALEN);
-	ARPOutput(mtcp, nif, arp_op_request, ip, haddr, taddr);
+	ARPOutput(nif, arp_op_request, ip, haddr, taddr);
 }
 /*----------------------------------------------------------------------------*/
 static int 
-ProcessARPRequest(mtcp_manager_t mtcp, 
-		struct arphdr *arph, int nif, uint32_t cur_ts)
+ProcessARPRequest(struct arphdr *arph, int nif, uint32_t cur_ts)
 {
 	unsigned char *temp;
 
@@ -219,13 +276,13 @@ ProcessARPRequest(mtcp_manager_t mtcp,
 	}
 
 	/* send arp reply */
-	ARPOutput(mtcp, nif, arp_op_reply, arph->ar_sip, arph->ar_sha, NULL);
+	ARPOutput(nif, arp_op_reply, arph->ar_sip, arph->ar_sha, NULL);
 
 	return 0;
 }
 /*----------------------------------------------------------------------------*/
 static int 
-ProcessARPReply(mtcp_manager_t mtcp, struct arphdr *arph, uint32_t cur_ts)
+ProcessARPReply(struct arphdr *arph, uint32_t cur_ts)
 {
 	unsigned char *temp;
 	struct arp_queue_entry *ent;
@@ -251,7 +308,7 @@ ProcessARPReply(mtcp_manager_t mtcp, struct arphdr *arph, uint32_t cur_ts)
 }
 /*----------------------------------------------------------------------------*/
 int 
-ProcessARPPacket(mtcp_manager_t mtcp, uint32_t cur_ts,
+ProcessARPPacket(uint32_t cur_ts,
 		                  const int ifidx, unsigned char *pkt_data, int len)
 {
 	struct arphdr *arph = (struct arphdr *)(pkt_data + sizeof(struct ethhdr));
@@ -259,12 +316,13 @@ ProcessARPPacket(mtcp_manager_t mtcp, uint32_t cur_ts,
 	int to_me = FALSE;
 	
 	/* process the arp messages destined to me */
+#if 0 // HONESTCHOI : TO DO
 	for (i = 0; i < CONFIG.eths_num; i++) {
 		if (arph->ar_tip == CONFIG.eths[i].ip_addr) {
 			to_me = TRUE;
 		}
 	}
-
+#endif 
 	if (!to_me)
 		return TRUE;
 	
@@ -274,11 +332,11 @@ ProcessARPPacket(mtcp_manager_t mtcp, uint32_t cur_ts,
 
 	switch (ntohs(arph->ar_op)) {
 		case arp_op_request:
-			ProcessARPRequest(mtcp, arph, ifidx, cur_ts);
+			ProcessARPRequest(arph, ifidx, cur_ts);
 			break;
 
 		case arp_op_reply:
-			ProcessARPReply(mtcp, arph, cur_ts);
+			ProcessARPReply(arph, cur_ts);
 			break;
 
 		default:
@@ -292,7 +350,7 @@ ProcessARPPacket(mtcp_manager_t mtcp, uint32_t cur_ts,
 /*           timeout is set to 1 second                                       */
 /*----------------------------------------------------------------------------*/
 void 
-ARPTimer(mtcp_manager_t mtcp, uint32_t cur_ts)
+ARPTimer(uint32_t cur_ts)
 {
 	struct arp_queue_entry *ent;
 
@@ -300,8 +358,6 @@ ARPTimer(mtcp_manager_t mtcp, uint32_t cur_ts)
 	pthread_mutex_lock(&g_arpm.lock);
 	TAILQ_FOREACH(ent, &g_arpm.list, arp_link) {
 		if (TCP_SEQ_GT(cur_ts, ent->ts_out + SEC_TO_TS(ARP_TIMEOUT_SEC))) {
-			TRACE_INFO("[CPU%2d] ARP request timed out.\n", 
-					mtcp->ctx->cpu);
 			TAILQ_REMOVE(&g_arpm.list, ent, arp_link);
 			free(ent);
 		}
@@ -312,15 +368,16 @@ ARPTimer(mtcp_manager_t mtcp, uint32_t cur_ts)
 void
 PrintARPTable()
 {
+#if 0 // HONESTCHOI :  Necessary ?
 	int i;
 		
 	/* print out process start information */
-	TRACE_CONFIG("ARP Table:\n");
+	fprintf(stderr,"ARP Table:\n");
 	for (i = 0; i < CONFIG.arp.entries; i++) {
 			
 		uint8_t *da = (uint8_t *)&CONFIG.arp.entry[i].ip;
 
-		TRACE_CONFIG("IP addr: %u.%u.%u.%u, "
+		fprintf(stderr,"IP addr: %u.%u.%u.%u, "
 				"dst_hwaddr: %02X:%02X:%02X:%02X:%02X:%02X\n",
 				da[0], da[1], da[2], da[3],
 				CONFIG.arp.entry[i].haddr[0],
@@ -331,9 +388,10 @@ PrintARPTable()
 				CONFIG.arp.entry[i].haddr[5]);
 	}
 	if (CONFIG.arp.entries == 0)
-		TRACE_CONFIG("(blank)\n");
+		fprintf(stderr,("(blank)\n");
 
-	TRACE_CONFIG("----------------------------------------------------------"
+#endif 
+	fprintf(stderr,"----------------------------------------------------------"
 			"-----------------------\n");
 }
 /*----------------------------------------------------------------------------*/

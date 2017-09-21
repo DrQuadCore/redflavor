@@ -13,14 +13,14 @@ unsigned char *
 GetDestinationHWaddr(uint32_t dip);
 
 void 
-RequestARP(mtcp_manager_t mtcp, uint32_t ip, int nif, uint32_t cur_ts);
+RequestARP(uint32_t ip, int nif, uint32_t cur_ts);
 
 int 
-ProcessARPPacket(mtcp_manager_t mtcp, uint32_t cur_ts,
+ProcessARPPacket(uint32_t cur_ts,
 		const int ifidx, unsigned char* pkt_data, int len);
 
 void 
-ARPTimer(mtcp_manager_t mtcp, uint32_t cur_ts);
+ARPTimer(uint32_t cur_ts);
 
 void 
 PrintARPTable();
