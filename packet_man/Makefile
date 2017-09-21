@@ -81,10 +81,11 @@ install: lib_install #drv_install
 #
 #gdrapi.o: gdrapi.c gdrapi.h 
 #validate.o: validate.cpp gdrapi.h common.hpp
+arp.o: arp.c arp.h
 my_malloc.o: my_malloc.cpp my_malloc.h common.hpp
 #copybw.o: copybw.cpp gdrapi.h common.hpp
 
-my_malloc: my_malloc.o $(LIB)
+my_malloc: my_malloc.o arp.o $(LIB)
 	$(LINK.cc)  -o $@ $^ $(LIBS)
 
 driver:
