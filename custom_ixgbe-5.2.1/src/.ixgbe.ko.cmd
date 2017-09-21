@@ -1,0 +1,1 @@
+cmd_/home/yhoon/Research/drivers/ixgbe-5.2.1/src_yhoon/ixgbe.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/yhoon/Research/drivers/ixgbe-5.2.1/src_yhoon/ixgbe.ko /home/yhoon/Research/drivers/ixgbe-5.2.1/src_yhoon/ixgbe.o /home/yhoon/Research/drivers/ixgbe-5.2.1/src_yhoon/ixgbe.mod.o
