@@ -176,8 +176,8 @@ ARPOutput(int nif, int opcode,
 		return -1;
 
 	/* Allocate a buffer */
-#if 0
-	struct arphdr *arph = (struct arphdr *)EthernetOutput(mtcp, 
+#if 1
+	struct arphdr *arph = (struct arphdr *)(uintptr_t)EthernetOutput( 
 			ETH_P_ARP, nif, dst_haddr, sizeof(struct arphdr));
 	if (!arph) {
 		return -1;

@@ -20,7 +20,7 @@ LDFLAGS  := $(CUDA_LIB) -L $(CUDA)/lib64
 CFLAGS   += -O2
 CXXFLAGS += -O2
 LIBS     := -lcudart -lcuda -lpthread -ldl
-#CXX := nvcc
+CXX := g++
 
 #LIB := libgdrapi.a
 #LIB_MAJOR_VER:=1
@@ -39,7 +39,7 @@ LIBS     := -lcudart -lcuda -lpthread -ldl
 #LIBOBJS := $(LIBSRCS:.c=.o)
 
 SRCS := my_malloc.cpp
-EXES := $(SRCS:.cpp=)
+EXES := $(SRCS:.cpp=).out
 
 
 all: driver exes
@@ -86,7 +86,7 @@ eth_out.o: eth_out.c eth_out.h
 my_malloc.o: my_malloc.cpp my_malloc.h common.hpp
 #copybw.o: copybw.cpp gdrapi.h common.hpp
 
-my_malloc: my_malloc.o arp.o eth_out.o $(LIB)
+my_malloc.out: my_malloc.o arp.o eth_out.o $(LIB)
 	$(LINK.cc)  -o $@ $^ $(LIBS)
 
 driver:
