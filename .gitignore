@@ -53,3 +53,8 @@ Module.symvers
 Mkfile.old
 dkms.conf
 *.ko
+
+# Sourced Assist Tools
+*cscope*
+*tags*
+tags
