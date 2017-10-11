@@ -58,3 +58,7 @@ dkms.conf
 *cscope*
 *tags*
 tags
+
+# hidden
+.*
+!.gitignore

@@ -18,6 +18,7 @@ static const struct modversion_info ____versions[]
 __used
 __attribute__((section("__versions"))) = {
 	{ 0x96cec1da, __VMLINUX_SYMBOL_STR(module_layout) },
+	{ 0x6bc3fbc0, __VMLINUX_SYMBOL_STR(__unregister_chrdev) },
 	{ 0x95344561, __VMLINUX_SYMBOL_STR(alloc_pages_current) },
 	{ 0x2d3385d3, __VMLINUX_SYMBOL_STR(system_wq) },
 	{ 0x9c2c0762, __VMLINUX_SYMBOL_STR(device_remove_file) },
@@ -60,6 +61,7 @@ __attribute__((section("__versions"))) = {
 	{ 0xc0a3d105, __VMLINUX_SYMBOL_STR(find_next_bit) },
 	{ 0xc121d96f, __VMLINUX_SYMBOL_STR(netif_carrier_off) },
 	{ 0x88bfa7e, __VMLINUX_SYMBOL_STR(cancel_work_sync) },
+	{ 0x932344a8, __VMLINUX_SYMBOL_STR(__register_chrdev) },
 	{ 0x4fa7d0c6, __VMLINUX_SYMBOL_STR(pci_dev_get) },
 	{ 0x3fec048f, __VMLINUX_SYMBOL_STR(sg_next) },
 	{ 0x949f7342, __VMLINUX_SYMBOL_STR(__alloc_percpu) },
@@ -297,4 +299,4 @@ MODULE_ALIAS("pci:v00008086d000015CEsv*sd*bc*sc*i*");
 MODULE_ALIAS("pci:v00008086d000015E4sv*sd*bc*sc*i*");
 MODULE_ALIAS("pci:v00008086d000015E5sv*sd*bc*sc*i*");
 
-MODULE_INFO(srcversion, "4DCEFE96581F547E735C8B6");
+MODULE_INFO(srcversion, "E18E3EC8986229ACA126F30");
