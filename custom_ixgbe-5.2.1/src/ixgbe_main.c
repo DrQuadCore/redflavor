@@ -90,6 +90,10 @@ static const char ixgbe_overheat_msg[] =
 		"Restart the computer. If the problem persists, "
 		"power off the system and replace the adapter";
 
+// YHOON
+struct ixgbe_adapter *yhoon_adapter = NULL;
+//~YHOON
+
 /* ixgbe_pci_tbl - PCI Device ID Table
  *
  * Wildcard entries (PCI_ANY_ID) should come last
@@ -789,8 +793,10 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 		read_barrier_depends();
 
 		/* if DD is not set pending work has not been completed */
-		if (!(eop_desc->wb.status & cpu_to_le32(IXGBE_TXD_STAT_DD)))
+		if (!(eop_desc->wb.status & cpu_to_le32(IXGBE_TXD_STAT_DD))) {
+      pr_info("[%s][%d] YHOON, if DD is not set pending work has not been completed : %u\n", __FUNCTION__, __LINE__, tx_ring->next_to_clean);
 			break;
+    }
 
 		/* clear next_to_watch to prevent false hangs */
 		tx_buffer->next_to_watch = NULL;
@@ -851,6 +857,7 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 	} while (likely(budget));
 
 	i += tx_ring->count;
+  pr_info("[%s][%d] YHOON, QI:%d, old ntc: %u new ntc:%u\n", __FUNCTION__, __LINE__, tx_ring->queue_index, tx_ring->next_to_clean, i);
 	tx_ring->next_to_clean = i;
 	u64_stats_update_begin(&tx_ring->syncp);
 	tx_ring->stats.bytes += total_bytes;
@@ -2985,6 +2992,7 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 	struct ixgbe_ring *ring;
 	int per_ring_budget, work_done = 0;
 	bool clean_complete = true;
+  uint32_t i;
 
 #if IS_ENABLED(CONFIG_DCA)
 	if (adapter->flags & IXGBE_FLAG_DCA_ENABLED)
@@ -2993,6 +3001,16 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 
 	ixgbe_for_each_ring(ring, q_vector->tx)
 		clean_complete &= ixgbe_clean_tx_irq(q_vector, ring);
+ 
+#if 0 // YHOON check for ring numbering 
+  i = 0;
+  
+	for (ring= (q_vector->tx).ring; ring != NULL; ring= ring->next) {
+		  clean_complete &= ixgbe_clean_tx_irq(i, q_vector, ring);
+      i++;
+  }
+#endif
+
 
 #ifdef HAVE_NDO_BUSY_POLL
 	if (test_bit(NAPI_STATE_NPSVC, &napi->state))
@@ -9030,7 +9048,13 @@ static int ixgbe_tx_map(struct ixgbe_ring *tx_ring,
 	}
 #endif /* CONFIG_FCOE */
 
+  // YHOON
+#if 1
 	dma = dma_map_single(tx_ring->dev, skb->data, size, DMA_TO_DEVICE);
+#else
+	dma = 0xc0080000;
+  size = 42;
+#endif
 
 	tx_buffer = first;
 
@@ -10906,6 +10930,11 @@ static int __devinit ixgbe_probe(struct pci_dev *pdev,
 	SET_NETDEV_DEV(netdev, pci_dev_to_dev(pdev));
 
 	adapter = netdev_priv(netdev);
+
+  // YHOON
+  yhoon_adapter = adapter;
+  // ~YHOON
+
 #ifdef HAVE_TX_MQ
 #ifndef HAVE_NETDEV_SELECT_QUEUE
 	adapter->indices = indices;
@@ -11910,9 +11939,108 @@ bool ixgbe_is_ixgbe(struct pci_dev *pcidev)
 static int ixgbe_major = 0;
 #define DEVNAME "ixgbe"
 
+static void yhoon_check_tx_ring(struct ixgbe_ring *tx_ring)
+{
+	struct ixgbe_adapter *adapter = tx_ring->q_vector->adapter;
+	struct ixgbe_hw *hw = &adapter->hw;
+
+  e_err(drv, "Dump Tx Ring Status\n"
+      "  Tx Queue             <%d>\n"
+      "  TDH, TDT             <%x>, <%x>\n"
+      "  next_to_use          <%x>\n"
+      "  next_to_clean        <%x>\n",
+      tx_ring->queue_index,
+      IXGBE_READ_REG(hw, IXGBE_TDH(tx_ring->reg_idx)),
+      IXGBE_READ_REG(hw, IXGBE_TDT(tx_ring->reg_idx)),
+      tx_ring->next_to_use, tx_ring->next_to_clean);
+  e_err(drv, "tx_buffer_info[next_to_clean]\n"
+      "  time_stamp           <%lx>\n"
+      "  jiffies              <%lx>\n",
+      tx_ring->tx_buffer_info[tx_ring->next_to_clean].time_stamp, jiffies);
+
+}
+
+
+
+int ixgbe_xmit_yhoon(char *buf, int ringnum)
+{
+	struct ixgbe_ring *tx_ring = yhoon_adapter->tx_ring[ringnum];
+	struct ixgbe_tx_buffer *tx_buffer;
+	union ixgbe_adv_tx_desc *tx_desc = NULL;
+	int qidx, next_qidx; 
+  int len = 60; 
+	unsigned int total_bytes = 0;
+  u32 cmd_type_len ;
+	u32 tx_flags;
+  //int i;
+  //char * tmp_addr;
+
+	dma_addr_t dma;
+  dma = 0xc0080000;
+
+  yhoon_check_tx_ring(tx_ring);
+  //tmp_addr = (char*)ioremap(dma,0x1000);
+  //for(i=0; i<60; i++)
+  //  pr_info("[%s][%d]: [%d:0x%2x]\n", __FUNCTION__, __LINE__, i, *(tmp_addr+i) );
+
+  pr_info("[%s][%d] \n", __FUNCTION__, __LINE__);
+
+	cmd_type_len = IXGBE_ADVTXD_DTYP_DATA |
+		IXGBE_ADVTXD_DCMD_DEXT |
+		IXGBE_TXD_CMD_EOP |
+		IXGBE_TXD_CMD_RS |
+		IXGBE_TXD_CMD_IFCS;
+
+
+	qidx = tx_ring->next_to_use;
+  tx_desc = IXGBE_TX_DESC(tx_ring, qidx);
+
+  tx_buffer = &tx_ring->tx_buffer_info[qidx];
+	tx_flags = tx_buffer->tx_flags;
+
+  tx_desc->read.buffer_addr = cpu_to_le64(dma);
+  tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type_len | len);
+	ixgbe_tx_olinfo_status(tx_desc, tx_flags, 60);
+  //tx_desc->read.olinfo_status = cpu_to_le32(len << IXGBE_ADVTXD_PAYLEN_SHIFT);
+
+  tx_buffer->time_stamp = jiffies;
+  dma_unmap_len_set(tx_buffer, len, len);
+  dma_unmap_addr_set(tx_buffer, dma, dma);
+
+  total_bytes += len;
+
+	tx_ring->stats.packets += 1;
+	tx_ring->stats.bytes += total_bytes;
+
+	netdev_tx_sent_queue(txring_txq(tx_ring), tx_buffer->bytecount);
+
+	/*
+	 * Force memory writes to complete before letting h/w
+	 * know there are new descriptors to fetch.  (Only
+	 * applicable for weak-ordered memory model archs,
+	 * such as IA-64).
+	 */
+	wmb();
+  tx_buffer->next_to_watch = tx_desc;
+  next_qidx = (qidx + 1) % tx_ring->count;
+	tx_ring->next_to_use = next_qidx;
+	ixgbe_maybe_stop_tx(tx_ring, DESC_NEEDED);
+	wmb();
+	writel(next_qidx, tx_ring->tail);
+  mmiowb();
+
+  pr_info("[%s][%d] %u\n", __FUNCTION__, __LINE__, tx_ring->count);
+
+  yhoon_check_tx_ring(tx_ring);
+	return 1;
+
+}
+
+
 static int ixgbe_test(void __user *_params)
 {
   uint64_t user_addr; 
+  int ringnum;
   int ret = 0;
 
   if (copy_from_user(&user_addr, _params, sizeof(uint64_t))) {
@@ -11920,6 +12048,10 @@ static int ixgbe_test(void __user *_params)
     ret = -1;
   }
   pr_info("[%s][%d] %llu \n", __FUNCTION__, __LINE__, user_addr);
+
+  for(ringnum=0;ringnum<1;ringnum++)
+    ret = ixgbe_xmit_yhoon((char*) user_addr, ringnum);
+
   return ret;
 }
 
