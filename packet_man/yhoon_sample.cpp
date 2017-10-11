@@ -30,24 +30,16 @@
 #include <linux/udp.h>
 #include "arp.h" 
 
-// #include <linux/ip.h> // YHOON: struct iphdr
-// #include <netinet/ip.h> // HONESTCHOI : struct iphdr
-// #include <net/checksum.h> // HONESTCHOI : ip_fast_csum
-#include <linux/if_ether.h>
-#include <linux/ip.h>
-#include <linux/ipv6.h>
-#include <linux/udp.h>
-#include <linux/in.h>
-#include <linux/netdevice.h>   /* struct device, and other headers */
-// #include <linux/etherdevice.h> /* eth_type_trans */
-#include <linux/ip.h>          /* struct iphdr */
-#include <linux/tcp.h>         /* struct tcphdr */
-//#include <linux/skbuff.h>
-#include <linux/in6.h>
-//#include <asm/checksum.h>
+//#include <net/checksum.h>
+
+
+//#include <linux/ip.h> // YHOON: struct iphdr
+//#include <netinet/ip.h> // HONESTCHOI : struct iphdr
 #define ETH_ALEN  6 // YHOON
 #define ARP_PAD_LEN 18 // YHOON
 
+
+//#define IPPROTO_UDP		17
 #define HTONS(n) (((((unsigned short)(n) & 0xFF)) << 8) | (((unsigned short)(n) & 0xFF00) >> 8))
 #define NTOHS(n) (((((unsigned short)(n) & 0xFF)) << 8) | (((unsigned short)(n) & 0xFF00) >> 8))
 
@@ -66,7 +58,7 @@
 #include <asm/types.h>
 using namespace std;
 
-#include "packet_man.h"
+#include "my_malloc.h"
 #include "mydrv/mydrv.h"
 #include "common.hpp"
 
@@ -587,13 +579,7 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
       //printf("[%s][%d] dst ip %u.%u.%u.%u\n", __FUNCTION__ ,__LINE__, daddr[0], daddr[1], daddr[2], daddr[3]);
       //t = (uint8_t *)&iph->daddr;
       //printf("[%s][%d] dst ip %u.%u.%u.%u\n", __FUNCTION__ ,__LINE__, t[0], t[1], t[2], t[3]);
-    } else if (h_mem[i] == 0xAB || h_mem[i] == 0xBA) {
-      for(int packet_iter = i; packet_iter < (i+20); packet_iter++) {
-        if((packet_iter-i) % 4 == 0)
-          printf("\n");
-        printf("%3d:0x%02x\t", packet_iter-i, h_mem[packet_iter]);
-      }
-	}
+    }
   }
   for(int i = 0; i < size; i++) 
     if(h_mem[i] != 0) 
