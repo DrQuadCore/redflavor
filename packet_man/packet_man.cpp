@@ -26,25 +26,12 @@
 
 #include <linux/if_ether.h>
 #include <linux/ip.h>
-//#include <linux/ipv6.h>
 #include <linux/udp.h>
 #include "arp.h" 
 
-// #include <linux/ip.h> // YHOON: struct iphdr
-// #include <netinet/ip.h> // HONESTCHOI : struct iphdr
-// #include <net/checksum.h> // HONESTCHOI : ip_fast_csum
-#include <linux/if_ether.h>
-#include <linux/ip.h>
-#include <linux/ipv6.h>
-#include <linux/udp.h>
-#include <linux/in.h>
 #include <linux/netdevice.h>   /* struct device, and other headers */
-// #include <linux/etherdevice.h> /* eth_type_trans */
-#include <linux/ip.h>          /* struct iphdr */
 #include <linux/tcp.h>         /* struct tcphdr */
-//#include <linux/skbuff.h>
 #include <linux/in6.h>
-//#include <asm/checksum.h>
 #define ETH_ALEN  6 // YHOON
 #define ARP_PAD_LEN 18 // YHOON
 

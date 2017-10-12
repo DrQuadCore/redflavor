@@ -207,6 +207,11 @@ endif
 
 EXTRA_CFLAGS += ${CFLAGS_EXTRA}
 
+# CKJUNG~
+NVIDIA_SRC_DIR ?= $(shell (find /usr/src/nvidia-* -name "nv-p2p.h"|xargs dirname))
+EXTRA_CFLAGS += -I$(NVIDIA_SRC_DIR)
+# ~CKJUNG
+
 # get the kernel version - we use this to find the correct install path
 KVER := $(shell ${CC} ${EXTRA_CFLAGS} -E -dM ${VERSION_FILE} | grep UTS_RELEASE | \
         awk '{ print $$3 }' | sed 's/\"//g')
