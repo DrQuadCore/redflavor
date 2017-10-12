@@ -1299,7 +1299,8 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
   pr_info("[%s][%d] YHOON, dma: %016llx virt_to_phys:%016llx\n", __FUNCTION__, __LINE__, dma, virt_to_phys(dma));
 #else
   // YHOON
-  dma = 0xc0080000+4096*count;
+  //dma = 0xc0080000+4096*count;
+  dma = 0xc02a0000+4096*count;
   count++;
   //pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
   if(!dma)
@@ -2995,7 +2996,7 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 	struct ixgbe_ring *ring;
 	int per_ring_budget, work_done = 0;
 	bool clean_complete = true;
-  uint32_t i;
+  //uint32_t i;
 
 #if IS_ENABLED(CONFIG_DCA)
 	if (adapter->flags & IXGBE_FLAG_DCA_ENABLED)
@@ -11980,7 +11981,10 @@ int ixgbe_xmit_yhoon(char *buf, int ringnum)
   //char * tmp_addr;
 
 	dma_addr_t dma;
-  dma = 0xc0080000;
+  // for eins
+  dma = 0xc02a0000;
+  // for yoon
+  //dma = 0xc0080000;
 
   yhoon_check_tx_ring(tx_ring);
   //tmp_addr = (char*)ioremap(dma,0x1000);
