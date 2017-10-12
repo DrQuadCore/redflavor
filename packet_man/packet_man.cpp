@@ -508,7 +508,7 @@ void init_data(int size, unsigned char* h_mem, int* d_A)
   uint8_t* buf;
   buf = (uint8_t *) malloc(60);
   uint8_t src_tmp[] = {0x01, 0x01, 0x01, 0x0b};
-  uint8_t dst_tmp[] = {0x01, 0x01, 0x01, 0x15};
+  uint8_t dst_tmp[] = {0x01, 0x01, 0x01, 0x01};
   uint32_t src_ip;
   memcpy(&src_ip, src_tmp, 4);
   uint32_t dst_ip;

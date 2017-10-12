@@ -857,7 +857,6 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 	} while (likely(budget));
 
 	i += tx_ring->count;
-  pr_info("[%s][%d] YHOON, QI:%d, old ntc: %u new ntc:%u\n", __FUNCTION__, __LINE__, tx_ring->queue_index, tx_ring->next_to_clean, i);
 	tx_ring->next_to_clean = i;
 	u64_stats_update_begin(&tx_ring->syncp);
 	tx_ring->stats.bytes += total_bytes;
@@ -2201,8 +2200,10 @@ static int ixgbe_clean_rx_irq(struct ixgbe_q_vector *q_vector,
 #endif /* CONFIG_FCOE */
 
 		ixgbe_rx_skb(q_vector, rx_ring, rx_desc, skb);
+#if 0
 		pr_info("[%s][%d] skb->head:[%p], skb->len:[%d]\n", __FUNCTION__ ,__LINE__, skb->head, skb->len);
 		pr_info("[%s][%d] skb->data:[%p], skb->data_len:[%d]\n", __FUNCTION__ ,__LINE__, skb->data, skb->data_len);
+#endif
 
 		/* update budget accounting */
 		total_rx_packets++;
@@ -3039,7 +3040,8 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 	ixgbe_for_each_ring(ring, q_vector->rx) {
 		int cleaned = ixgbe_clean_rx_irq(q_vector, ring,
 						 per_ring_budget);
-		pr_info("[%s][%d] HONESTCHOI : cleaned:[%d]\n", __FUNCTION__, __LINE__, cleaned);
+    if(cleaned)
+      pr_info("[%s][%d] HONESTCHOI : cleaned:[%d]\n", __FUNCTION__, __LINE__, cleaned);
 		work_done += cleaned;
 		clean_complete &= (cleaned < per_ring_budget);
 	}
@@ -11967,7 +11969,7 @@ static void yhoon_check_tx_ring(struct ixgbe_ring *tx_ring)
 
 
 
-int ixgbe_xmit_yhoon(char *buf, int ringnum)
+int ixgbe_xmit_one_packet(char *buf, int ringnum)
 {
 	struct ixgbe_ring *tx_ring = yhoon_adapter->tx_ring[ringnum];
 	struct ixgbe_tx_buffer *tx_buffer;
@@ -11990,8 +11992,6 @@ int ixgbe_xmit_yhoon(char *buf, int ringnum)
   //tmp_addr = (char*)ioremap(dma,0x1000);
   //for(i=0; i<60; i++)
   //  pr_info("[%s][%d]: [%d:0x%2x]\n", __FUNCTION__, __LINE__, i, *(tmp_addr+i) );
-
-  pr_info("[%s][%d] \n", __FUNCTION__, __LINE__);
 
 	cmd_type_len = IXGBE_ADVTXD_DTYP_DATA |
 		IXGBE_ADVTXD_DCMD_DEXT |
@@ -12037,15 +12037,13 @@ int ixgbe_xmit_yhoon(char *buf, int ringnum)
 	writel(next_qidx, tx_ring->tail);
   mmiowb();
 
-  pr_info("[%s][%d] %u\n", __FUNCTION__, __LINE__, tx_ring->count);
-
   yhoon_check_tx_ring(tx_ring);
 	return 1;
 
 }
 
 
-static int ixgbe_test(void __user *_params)
+static int ixgbe_xmit_yhoon(void __user *_params)
 {
   uint64_t user_addr; 
   int ringnum;
@@ -12055,10 +12053,10 @@ static int ixgbe_test(void __user *_params)
     pr_info("[%s][%d] copy_from_user failed \n", __FUNCTION__, __LINE__);
     ret = -1;
   }
-  pr_info("[%s][%d] %llu \n", __FUNCTION__, __LINE__, user_addr);
+  pr_info("[%s][%d] YHOON - parameter from user ioctl call: %llu \n", __FUNCTION__, __LINE__, user_addr);
 
   for(ringnum=0;ringnum<1;ringnum++)
-    ret = ixgbe_xmit_yhoon((char*) user_addr, ringnum);
+    ret = ixgbe_xmit_one_packet((char*) user_addr, ringnum);
 
   return ret;
 }
@@ -12069,11 +12067,11 @@ static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned in
   //uint64_t user_addr = (uint64_t) filp->private_data;
   //my_info_t *info = filp->private_data;
   void __user *argp = (void __user *)arg;
-  pr_info("[%s][%d] YHOON HERE!!!!!!!!!!\n", __FUNCTION__, __LINE__);
+  pr_info("[%s][%d] YHOON \n", __FUNCTION__, __LINE__);
   switch (cmd) {
     case 0:
-      pr_info("[%s][%d] YHOON IXGBE_IOTCL_YHOON case 0\n", __FUNCTION__, __LINE__);
-      ret = ixgbe_test(argp);
+      pr_info("[%s][%d] YHOON case 0\n", __FUNCTION__, __LINE__);
+      ret = ixgbe_xmit_yhoon(argp);
       break;
 
     default:
