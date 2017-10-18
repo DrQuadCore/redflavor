@@ -6,16 +6,12 @@ CC := gcc
 CLIENT_SRCS := client.c
 SERVER_SRCS := server.c
 
-CLIENT_EXE := $(SRCS:.c=).out
-SERVER_EXE := $(SRCS:.c=).out
+all: client.out server.out
 
-
-all: client server
-
-client: 
+client.out: 
 	$(CC) $(CFLAGS) -fPIC -DHAPPY $(CLIENT_SRCS) -o $@
 
-server: 
+server.out: 
 	$(CC) $(CFLAGS) -fPIC -DHAPPY $(SERVER_SRCS) -o $@
 
 .cc.o:
