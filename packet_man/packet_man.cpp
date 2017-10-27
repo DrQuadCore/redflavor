@@ -267,12 +267,21 @@ ARPOutput(uint8_t * buf, int opcode,
 
 #if 1
   uint8_t src_haddr[ETH_ALEN];
+/*
   src_haddr[0] = 0xa0;
   src_haddr[1] = 0x36;
   src_haddr[2] = 0x9f;
   src_haddr[3] = 0x9c;
   src_haddr[4] = 0x8c;
   src_haddr[5] = 0x26;
+*/
+// For ckjung node, 171027
+  src_haddr[0] = 0x00;
+  src_haddr[1] = 0x1b;
+  src_haddr[2] = 0x21;
+  src_haddr[3] = 0xbc;
+  src_haddr[4] = 0x11;
+  src_haddr[5] = 0x52;
 
 	struct arphdr *arph = (struct arphdr *)(uintptr_t)EthernetOutput(
     buf, ETH_P_ARP, src_haddr, dst_haddr, sizeof(struct arphdr));
@@ -354,7 +363,8 @@ int my_pin_buffer(my_t g, unsigned long addr, size_t size, uint64_t p2p_token, u
 my_t my_open()
 {
     my_t m = NULL;
-    const char *myinode = "/dev/mydrv";
+    //const char *myinode = "/dev/mydrv";
+    const char *myinode = "/dev/ixgbe";
 
     m = (my_t) calloc(1, sizeof(*m));
     if (!m) {
@@ -507,8 +517,12 @@ void init_data(int size, unsigned char* h_mem, int* d_A)
 
   uint8_t* buf;
   buf = (uint8_t *) malloc(60);
-  uint8_t src_tmp[] = {0x01, 0x01, 0x01, 0x0b};
-  uint8_t dst_tmp[] = {0x01, 0x01, 0x01, 0x01};
+  //uint8_t src_tmp[] = {0x01, 0x01, 0x01, 0x0b};
+// For ckjung node, 171027
+  uint8_t src_tmp[] = {0x0a, 0x00, 0x00, 0x02};
+  //uint8_t dst_tmp[] = {0x01, 0x01, 0x01, 0x01};
+// For snow node, 171027
+  uint8_t dst_tmp[] = {0x0a, 0x00, 0x00, 0x01};
   uint32_t src_ip;
   memcpy(&src_ip, src_tmp, 4);
   uint32_t dst_ip;

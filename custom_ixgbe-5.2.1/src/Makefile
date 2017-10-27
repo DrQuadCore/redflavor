@@ -28,7 +28,11 @@ ifneq ($(KERNELRELEASE),)
 # Makefile for the Intel(R) 10GbE PCI Express Linux Network Driver
 #
 
+
 obj-$(CONFIG_IXGBE) += ixgbe.o
+# CKJUNG~
+obj-m += nv-p2p-dummy.o
+# ~CKJUNG
 
 define ixgbe-y
 	ixgbe_main.o
@@ -62,6 +66,9 @@ ixgbe-$(CONFIG_PTP_1588_CLOCK:m=y) += ixgbe_ptp.o
 ixgbe-${CONFIG_SYSFS} += ixgbe_sysfs.o
 
 ixgbe-y += kcompat.o
+# CKJUNG~
+#ixgbe-y += nv-p2p-dummy.o
+# ~CKJUNG
 
 else	# ifneq($(KERNELRELEASE),)
 # normal makefile
