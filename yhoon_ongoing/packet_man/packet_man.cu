@@ -581,10 +581,13 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
 }
 
 #define COMPILER_BARRIER() asm volatile("" ::: "memory")
-
+#ifndef __USE_GPU__
+void doorbell_test(void * io_addr)
+#else
 __global__ void doorbell_test(void * io_addr)
+#endif
 {
-  printf("[%s][%d] DB BEGINS\n", __FUNCTION__, __LINE__);
+  printf("[%s][%d] \n", __FUNCTION__, __LINE__);
   unsigned char *db0, *db1, *db2, *db3, *db4, *db5;
 	db0 = ((unsigned char *)io_addr) + IXGBE_TDT(0);
 	db1 = ((unsigned char *)io_addr) + IXGBE_TDT(1);
@@ -594,13 +597,12 @@ __global__ void doorbell_test(void * io_addr)
 	db5 = ((unsigned char *)io_addr) + IXGBE_TDT(5);
 
   COMPILER_BARRIER();
-  *(volatile unsigned int *)db0 = 0;
-  *(volatile unsigned int *)db1 = 0;
-  *(volatile unsigned int *)db2 = 0;
-  *(volatile unsigned int *)db3 = 0;
-  *(volatile unsigned int *)db4 = 0;
-  *(volatile unsigned int *)db5 = 0;
-  printf("[%s][%d] DB ENDS\n", __FUNCTION__, __LINE__);
+  *(volatile unsigned int *)db4 = 4;
+  *(volatile unsigned int *)db1 = 4;
+  *(volatile unsigned int *)db2 = 4;
+  *(volatile unsigned int *)db3 = 4;
+  *(volatile unsigned int *)db4 = 4;
+  *(volatile unsigned int *)db5 = 4;
 }
 
 // YHOON~ for test
@@ -614,11 +616,20 @@ void yhoon_xmit_arp()
 
   OUT << "HERE 1" << endl; 
   void* dummy2;
+#ifdef __USE_GPU__
   ASSERTRT(cudaMalloc(&dummy2, 4096*8));
-	mmap(dummy2, 4096*8, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+#endif
+  const size_t IXGBE_BAR0_SIZE = 4096*8; // A rough calculation
+  void* ixgbe_bar0_host_addr = mmap(0, IXGBE_BAR0_SIZE , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  cudaHostRegister(ixgbe_bar0_host_addr, IXGBE_BAR0_SIZE, cudaHostRegisterIoMemory);
+
 
   usleep(0.1*1000*1000);
-  doorbell_test <<< 1,1 >>> (dummy2);
+#ifndef __USE_GPU__
+  doorbell_test(dummy2);
+#else
+  doorbell_test<<< 1,1 >>>(ixgbe_bar0_host_addr);
+#endif
   OUT << "HERE 2" << endl; 
 
   // ~YHOON
