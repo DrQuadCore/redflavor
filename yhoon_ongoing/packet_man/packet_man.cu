@@ -169,7 +169,7 @@ DumpPacket(uint8_t *buf, int len)
 	struct ethhdr *ethh;
 	struct iphdr *iph;
 	struct udphdr *udph;
-	struct tcphdr *tcph;
+	//struct tcphdr *tcph;
 	uint8_t *t;
 
 	ethh = (struct ethhdr *)buf;
@@ -197,7 +197,7 @@ DumpPacket(uint8_t *buf, int len)
 
 	iph = (struct iphdr *)(ethh + 1);
 	udph = (struct udphdr *)((uint32_t *)iph + iph->ihl);
-	tcph = (struct tcphdr *)((uint32_t *)iph + iph->ihl);
+	//tcph = (struct tcphdr *)((uint32_t *)iph + iph->ihl);
 
 	t = (uint8_t *)&iph->saddr;
 	printf("%u.%u.%u.%u", t[0], t[1], t[2], t[3]);
@@ -364,12 +364,13 @@ my_t my_open()
 
     return m;
 }
-
+#if 0
 static inline uint32_t myrand(uint64_t *seed) 
 {
 	*seed = *seed * 1103515245 + 12345;
 	return (uint32_t)(*seed >> 32);
 }
+#endif
 
 #if 0 // BUILD_PACKET
 void build_packet(char *buf, int size, uint64_t *seed)
@@ -596,13 +597,21 @@ __global__ void doorbell_test(void * io_addr)
 	db4 = ((unsigned char *)io_addr) + IXGBE_TDT(4);
 	db5 = ((unsigned char *)io_addr) + IXGBE_TDT(5);
 
+
+  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db0 );
+  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db1 );
+  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db2 );
+  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db3 );
+  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db4 );
+  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db5 );
+
   COMPILER_BARRIER();
-  *(volatile unsigned int *)db4 = 4;
-  *(volatile unsigned int *)db1 = 4;
-  *(volatile unsigned int *)db2 = 4;
-  *(volatile unsigned int *)db3 = 4;
-  *(volatile unsigned int *)db4 = 4;
-  *(volatile unsigned int *)db5 = 4;
+  *(volatile unsigned int *)db0 = 100;
+  *(volatile unsigned int *)db1 = 100;
+  *(volatile unsigned int *)db2 = 100;
+  *(volatile unsigned int *)db3 = 100;
+  *(volatile unsigned int *)db4 = 100;
+  *(volatile unsigned int *)db5 = 100;
 }
 
 // YHOON~ for test
@@ -611,27 +620,24 @@ void yhoon_xmit_arp()
   const char *myinode = "/dev/ixgbe";
   int fd = open(myinode, O_RDWR);
   uint64_t ptr = 1234;
-  int retcode;
-  retcode = ioctl(fd, 0, &ptr);
+  //int retcode;
+  //retcode = ioctl(fd, 0, &ptr);
+  ioctl(fd, 0, &ptr);
 
-  OUT << "HERE 1" << endl; 
+#ifndef __USE_GPU__
   void* dummy2;
-#ifdef __USE_GPU__
   ASSERTRT(cudaMalloc(&dummy2, 4096*8));
-#endif
+
+  doorbell_test(dummy2);
+#else
+  void* dBAR;
   const size_t IXGBE_BAR0_SIZE = 4096*8; // A rough calculation
   void* ixgbe_bar0_host_addr = mmap(0, IXGBE_BAR0_SIZE , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   cudaHostRegister(ixgbe_bar0_host_addr, IXGBE_BAR0_SIZE, cudaHostRegisterIoMemory);
+  cudaHostGetDevicePointer((void**)&dBAR, (void*)ixgbe_bar0_host_addr, 0);
 
-
-  usleep(0.1*1000*1000);
-#ifndef __USE_GPU__
-  doorbell_test(dummy2);
-#else
-  doorbell_test<<< 1,1 >>>(ixgbe_bar0_host_addr);
+  doorbell_test<<< 1,1 >>>(dBAR);
 #endif
-  OUT << "HERE 2" << endl; 
-
   // ~YHOON
 }
 
@@ -686,23 +692,14 @@ int main(int argc, char *argv[])
   //cudaMemcpy(&h_tmp, (int *)d_A, sizeof(int), cudaMemcpyDeviceToHost);
   //OUT << "after pinning: " << h_tmp << endl;
 
-#if 0
-  init_data<<< 1, 1 >>>(size, h_mem, d_A);
-#else
   init_data(size, h_mem, d_A);
-#endif
-
 
   // call ixgbe_xmit_yhoon in ixgbe_main.c
   yhoon_xmit_arp();
 
   int count = 0;
-  while(count < 1000) {
-#if 0
-    check_data<<< 1,1 >>>(size, h_mem, d_A);
-#else
+  while(count < 1) {
     check_data(size, h_mem, d_A);
-#endif 
     usleep(1*1000*1000);
     count++;
   }

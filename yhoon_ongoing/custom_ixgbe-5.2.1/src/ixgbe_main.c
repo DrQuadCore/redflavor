@@ -12107,9 +12107,6 @@ out:
 static int ixgbe_mmap_yhoon(struct file *filp, struct vm_area_struct *vma) {
 	int ret = -1;
 	struct pci_dev *pdev = yhoon_adapter->pdev;
-
-  pr_info("[%s][%d] %p %lx %lx\n", __FUNCTION__, __LINE__, pdev, pci_resource_start(pdev, 0), pci_resource_start(pdev, 0) >> PAGE_SHIFT  );
-
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	ret = io_remap_pfn_range(vma, vma->vm_start, pci_resource_start(pdev, 0) >> PAGE_SHIFT, 4096*8, vma->vm_page_prot);
 
