@@ -783,7 +783,7 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 	i -= tx_ring->count;
 
 	do {
-		union ixgbe_adv_tx_desc *eop_desc = tx_buffer->next_to_watch;
+    union ixgbe_adv_tx_desc *eop_desc = tx_buffer->next_to_watch;
 
 		/* if next_to_watch is not set then there is no work pending */
 		if (!eop_desc)
@@ -794,7 +794,7 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 
 		/* if DD is not set pending work has not been completed */
 		if (!(eop_desc->wb.status & cpu_to_le32(IXGBE_TXD_STAT_DD))) {
-      pr_info("[%s][%d] YHOON, if DD is not set pending work has not been completed : %u\n", __FUNCTION__, __LINE__, tx_ring->next_to_clean);
+      pr_info("[%s][%d] YHOON, if DD is not set pending work has not been completed : %u at queue %d\n", __FUNCTION__, __LINE__, tx_ring->next_to_clean, tx_ring->reg_idx);
 			break;
     }
 
@@ -1300,6 +1300,7 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
   // YHOON
   //dma = 0xc0080000+4096*count;
   dma = 0xe0300000+4096*count;
+  //pr_info("[%s][%d] rx_ring->reg_idx:%d dma:%016llx\n", __FUNCTION__, __LINE__, rx_ring->reg_idx, dma);
   //dma = 0xc02a0000+4096*count;
   count++;
   //pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
@@ -1342,6 +1343,7 @@ void ixgbe_alloc_rx_buffers(struct ixgbe_ring *rx_ring, u16 cleaned_count)
 #ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
 	u16 bufsz;
 #endif
+  pr_info("[%s][%d] YHOON rx_ring:%d, next_to_use:%d\n", __FUNCTION__, __LINE__,rx_ring->reg_idx, i);
 
 	/* nothing to do */
 	if (!cleaned_count)
@@ -11984,7 +11986,9 @@ int ixgbe_xmit_one_packet(char *buf, int ringnum)
   //char * tmp_addr;
 
 	dma_addr_t dma;
-  // for eins
+
+  pr_info("[%s][%d] YHOON \n", __FUNCTION__, __LINE__);
+  // for eins, ckjung
   dma = 0xe0300000;
   // for yoon
   //dma = 0xc0080000;
@@ -12009,8 +12013,12 @@ int ixgbe_xmit_one_packet(char *buf, int ringnum)
 
   tx_desc->read.buffer_addr = cpu_to_le64(dma);
   tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type_len | len);
+  pr_info("[%s][%d] YHOON cmd_type_len: %x\n", __FUNCTION__, __LINE__, tx_desc->read.cmd_type_len);
+  pr_info("[%s][%d] YHOON tx_flag: %x\n", __FUNCTION__, __LINE__, tx_flags);
+
 	ixgbe_tx_olinfo_status(tx_desc, tx_flags, 60);
   //tx_desc->read.olinfo_status = cpu_to_le32(len << IXGBE_ADVTXD_PAYLEN_SHIFT);
+  pr_info("[%s][%d] YHOON read.olinfo_status: %x\n", __FUNCTION__, __LINE__, tx_desc->read.olinfo_status);
 
   tx_buffer->time_stamp = jiffies;
   dma_unmap_len_set(tx_buffer, len, len);
@@ -12062,6 +12070,44 @@ static int ixgbe_xmit_yhoon(void __user *_params)
   return ret;
 }
 
+#if 1
+static int setup_tx_ring_desc_for_gpu(int ringnum)
+{
+	struct ixgbe_ring *tx_ring = yhoon_adapter->tx_ring[ringnum];
+	union ixgbe_adv_tx_desc *tx_desc = NULL;
+  int i;
+	dma_addr_t dma;
+  u32 cmd_type_len;
+
+  pr_info("[%s][%d] YHOON \n", __FUNCTION__, __LINE__);
+
+  for(i = 0; i < tx_ring->count; i++) {
+    dma = 0xe0300000 + 0x1000 * i;
+		tx_desc = IXGBE_TX_DESC(tx_ring, i);
+
+    cmd_type_len = IXGBE_ADVTXD_DTYP_DATA |
+      IXGBE_ADVTXD_DCMD_DEXT |
+      IXGBE_TXD_CMD_EOP |
+      IXGBE_TXD_CMD_RS |
+      IXGBE_TXD_CMD_IFCS;
+
+    // tx_buffer may not be used.
+    // It is mainly used for unmapping, but we don't unmap
+    //tx_buffer = &tx_ring->tx_buffer_info[i];
+	  //tx_flags = tx_buffer->tx_flags;
+    //ixgbe_tx_olinfo_status(tx_desc, tx_flags, 60);
+  //tx_buffer->time_stamp = jiffies;
+  //dma_unmap_len_set(tx_buffer, len, len);
+  //dma_unmap_addr_set(tx_buffer, dma, dma);
+
+    tx_desc->read.buffer_addr = cpu_to_le64(dma);
+    tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type_len);
+  }
+
+	return 1;
+}
+#endif
+
 static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg)
 {
   int ret = 0;
@@ -12074,7 +12120,10 @@ static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned in
       pr_info("[%s][%d] YHOON case 0\n", __FUNCTION__, __LINE__);
       ret = ixgbe_xmit_yhoon(argp);
       break;
-
+    case 1:
+      pr_info("[%s][%d] YHOON case 1\n", __FUNCTION__, __LINE__);
+      setup_tx_ring_desc_for_gpu(0);
+      break;
     default:
       pr_info("[%s][%d] YHOON default\n", __FUNCTION__, __LINE__);
   }
@@ -12105,11 +12154,14 @@ out:
 }
 
 static int ixgbe_mmap_yhoon(struct file *filp, struct vm_area_struct *vma) {
-	int ret = -1;
+	int ret1 = -1;
+	int ret2 = -1;
 	struct pci_dev *pdev = yhoon_adapter->pdev;
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-	ret = io_remap_pfn_range(vma, vma->vm_start, pci_resource_start(pdev, 0) >> PAGE_SHIFT, 4096*8, vma->vm_page_prot);
+	ret1 = io_remap_pfn_range(vma, vma->vm_start, pci_resource_start(pdev, 0) >> PAGE_SHIFT, 4096*8, vma->vm_page_prot);
 
+  //pr_info("[%s][%d] %lx\n", __FUNCTION__, __LINE__, (unsigned long)yhoon_adapter->tx_ring[0]->dma);
+	ret2 = io_remap_pfn_range(vma, vma->vm_start+0x1000*8, (unsigned long)yhoon_adapter->tx_ring[0]->dma >> PAGE_SHIFT, 4096*8, vma->vm_page_prot);
 	return 0;
 }
 

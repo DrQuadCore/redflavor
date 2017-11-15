@@ -165,7 +165,7 @@ DumpARPPacket(struct arphdr *arph)
 void
 DumpPacket(uint8_t *buf, int len)
 {
-  printf("\n<<<DumpPacket>>>\n");
+  printf("<<<DumpPacket>>>\n");
 	struct ethhdr *ethh;
 	struct iphdr *iph;
 	struct udphdr *udph;
@@ -269,12 +269,13 @@ ARPOutput(uint8_t * buf, int opcode,
 
 #if 1
   uint8_t src_haddr[ETH_ALEN];
-  src_haddr[0] = 0xa0;
-  src_haddr[1] = 0x36;
-  src_haddr[2] = 0x9f;
-  src_haddr[3] = 0x9c;
-  src_haddr[4] = 0x8c;
-  src_haddr[5] = 0x26;
+  // ckjung: 00:1b:21:bc:11:52
+  src_haddr[0] = 0x00;
+  src_haddr[1] = 0x1b;
+  src_haddr[2] = 0x21;
+  src_haddr[3] = 0xbc;
+  src_haddr[4] = 0x11;
+  src_haddr[5] = 0x52;
 
 	struct arphdr *arph = (struct arphdr *)(uintptr_t)EthernetOutput(
     buf, ETH_P_ARP, src_haddr, dst_haddr, sizeof(struct arphdr));
@@ -498,8 +499,8 @@ void init_data(int size, unsigned char* h_mem, int* d_A)
 
   uint8_t* buf;
   buf = (uint8_t *) malloc(60);
-  uint8_t src_tmp[] = {0x01, 0x01, 0x01, 0x0b};
-  uint8_t dst_tmp[] = {0x01, 0x01, 0x01, 0x01};
+  uint8_t src_tmp[] = {0x0a, 0x00, 0x00, 0x02};
+  uint8_t dst_tmp[] = {0x0a, 0x00, 0x00, 0x01};
   uint32_t src_ip;
   memcpy(&src_ip, src_tmp, 4);
   uint32_t dst_ip;
@@ -512,9 +513,11 @@ void init_data(int size, unsigned char* h_mem, int* d_A)
 
   DumpPacket(buf, 60);
 
-  for(int i=0; i < 60; i++) 
+  for(int i=0; i < 60; i++) { 
     h_mem[i] = buf[i];
+    h_mem[i+4096] = buf[i];
     //h_mem[i] = arp_req[i];
+  }
 
   cudaMemcpy(d_A, h_mem, size, cudaMemcpyHostToDevice);
 }
@@ -539,9 +542,10 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
   int dirty_cnt = 0;
   //const int DUMP_SIZE = 30;
   for(int i = 0; i < size; i++) {
-    if(*((uint16_t*)&h_mem[i]) == 0x0608 || *((uint16_t*)&h_mem[i]) == 0x0008 ) {//(h_mem[i] == 0x08 && h_mem[i+1] == 0x00) ) {
+    if(*((uint16_t*)&h_mem[i]) == 0x0608 || *((uint16_t*)&h_mem[i]) == 0x0806 ) {//(h_mem[i] == 0x08 && h_mem[i+1] == 0x00) ) {
       i = i;
       //printf("\n%s][%d] PACKET BEGINS-------------------------------------\n", __FUNCTION__, __LINE__);
+      printf("\n\n");
       printf("[%s][%d] We found ethernet type 0x%02x%02x on %dth memory.\n", __FUNCTION__ , __LINE__, h_mem[i], h_mem[i+1],i);
       printf("[%s][%d] We found ethernet type 0x%04x on %dth memory.\n", __FUNCTION__ , __LINE__, *((uint16_t*)&h_mem[i]), i);
       
@@ -581,66 +585,112 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
   printf("[%s][%d] ENDS\n\n\n\n", __FUNCTION__, __LINE__);
 }
 
+union ixgbe_adv_tx_desc {
+	struct {
+		__le64 buffer_addr; /* Address of descriptor's data buf */
+		__le32 cmd_type_len;
+		__le32 olinfo_status;
+	} read;
+	struct {
+		__le64 rsvd; /* Reserved */
+		__le32 nxtseq_seed;
+		__le32 status;
+	} wb;
+};
+
+
 #define COMPILER_BARRIER() asm volatile("" ::: "memory")
+#define cpu_to_le32(x) ((__le32)(__swab32)(x))
+
 #ifndef __USE_GPU__
 void doorbell_test(void * io_addr)
 #else
-__global__ void doorbell_test(void * io_addr)
+__global__ void doorbell_test(void * io_addr, void * desc)
 #endif
 {
   printf("[%s][%d] \n", __FUNCTION__, __LINE__);
-  unsigned char *db0, *db1, *db2, *db3, *db4, *db5;
-	db0 = ((unsigned char *)io_addr) + IXGBE_TDT(0);
-	db1 = ((unsigned char *)io_addr) + IXGBE_TDT(1);
-	db2 = ((unsigned char *)io_addr) + IXGBE_TDT(2);
-	db3 = ((unsigned char *)io_addr) + IXGBE_TDT(3);
-	db4 = ((unsigned char *)io_addr) + IXGBE_TDT(4);
-	db5 = ((unsigned char *)io_addr) + IXGBE_TDT(5);
-
-
-  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db0 );
-  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db1 );
-  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db2 );
-  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db3 );
-  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db4 );
-  printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db5 );
+  unsigned char *db[12];
+  for(int i=0; i<12; i++)
+    db[i] = ((unsigned char *)io_addr) + IXGBE_TDT(i);
 
   COMPILER_BARRIER();
-  *(volatile unsigned int *)db0 = 100;
+#if 1
+  for(int i=0; i<12;i++)
+    printf("[%s][%d] %d\n", __FUNCTION__, __LINE__, *(volatile unsigned int *)db[i] );
+#endif
+  ixgbe_adv_tx_desc* tx_desc;
+  tx_desc = (ixgbe_adv_tx_desc*) desc;
+  tx_desc->read.cmd_type_len |= 60;
+  tx_desc->read.olinfo_status = 0xf0000;
+  tx_desc++;
+  tx_desc->read.cmd_type_len |= 60;
+  tx_desc->read.olinfo_status = 0xf0000;
+
+#if 0
+  printf("[%s][%d] %x\n", __FUNCTION__, __LINE__, tx_desc->read.cmd_type_len);
+  printf("[%s][%d] %lx\n", __FUNCTION__, __LINE__, tx_desc->read.buffer_addr);
+  printf("[%s][%d] %x\n", __FUNCTION__, __LINE__, tx_desc->read.olinfo_status);
+#endif
+  *(volatile unsigned int *)db[0] = 2;
+#if 0
   *(volatile unsigned int *)db1 = 100;
   *(volatile unsigned int *)db2 = 100;
   *(volatile unsigned int *)db3 = 100;
   *(volatile unsigned int *)db4 = 100;
   *(volatile unsigned int *)db5 = 100;
+#endif
 }
+#if 1
+// YHOON~ for test
+void yhoon_xmit_arp()
+{
+  const char *myinode = "/dev/ixgbe";
+  int fd = open(myinode, O_RDWR);
+  //uint64_t ptr = 1234;
+  //ioctl(fd, 0, &ptr);
+  ioctl(fd, 1);
 
+  int i;
+  printf("cpu_to_le32 test:%x\n", htonl(60));
+#ifndef __USE_GPU__
+  void* dummy2;
+  ASSERTRT(cudaMalloc(&dummy2, 4096*8));
+
+#error "use_gpu"
+
+  doorbell_test(dummy2);
+#else
+  void* dBAR;
+  const size_t IXGBE_BAR0_SIZE = 4096*8; // A rough calculation
+  void* ixgbe_bar0_host_addr = mmap(0, IXGBE_BAR0_SIZE*2 , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  cudaHostRegister(ixgbe_bar0_host_addr, IXGBE_BAR0_SIZE, cudaHostRegisterIoMemory);
+  cudaHostGetDevicePointer((void**)&dBAR, (void*)ixgbe_bar0_host_addr, 0);
+
+  ixgbe_adv_tx_desc* desc = (ixgbe_adv_tx_desc*)((unsigned char*)ixgbe_bar0_host_addr + IXGBE_BAR0_SIZE);
+  printf("ADDRES: %p\n", desc);
+  for(i=0; i<12; i++)
+    printf("DESCTEST: %x\n", (desc+i)->read.cmd_type_len);
+
+  void* cmd_type_len;
+
+  cudaHostRegister(desc, sizeof(ixgbe_adv_tx_desc), cudaHostRegisterIoMemory);
+  cudaHostGetDevicePointer((void**)&cmd_type_len, (void*)desc, 0);
+
+  doorbell_test<<< 1,1 >>>(dBAR, cmd_type_len);
+#endif
+  // ~YHOON
+}
+#else
 // YHOON~ for test
 void yhoon_xmit_arp()
 {
   const char *myinode = "/dev/ixgbe";
   int fd = open(myinode, O_RDWR);
   uint64_t ptr = 1234;
-  //int retcode;
-  //retcode = ioctl(fd, 0, &ptr);
   ioctl(fd, 0, &ptr);
-
-#ifndef __USE_GPU__
-  void* dummy2;
-  ASSERTRT(cudaMalloc(&dummy2, 4096*8));
-
-  doorbell_test(dummy2);
-#else
-  void* dBAR;
-  const size_t IXGBE_BAR0_SIZE = 4096*8; // A rough calculation
-  void* ixgbe_bar0_host_addr = mmap(0, IXGBE_BAR0_SIZE , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  cudaHostRegister(ixgbe_bar0_host_addr, IXGBE_BAR0_SIZE, cudaHostRegisterIoMemory);
-  cudaHostGetDevicePointer((void**)&dBAR, (void*)ixgbe_bar0_host_addr, 0);
-
-  doorbell_test<<< 1,1 >>>(dBAR);
-#endif
   // ~YHOON
 }
-
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -698,7 +748,7 @@ int main(int argc, char *argv[])
   yhoon_xmit_arp();
 
   int count = 0;
-  while(count < 1) {
+  while(count < 20) {
     check_data(size, h_mem, d_A);
     usleep(1*1000*1000);
     count++;
