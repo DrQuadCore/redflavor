@@ -3043,8 +3043,8 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 	ixgbe_for_each_ring(ring, q_vector->rx) {
 		int cleaned = ixgbe_clean_rx_irq(q_vector, ring,
 						 per_ring_budget);
-    if(cleaned)
-      pr_info("[%s][%d] HONESTCHOI : cleaned:[%d]\n", __FUNCTION__, __LINE__, cleaned);
+    //if(cleaned)
+    //  pr_info("[%s][%d] HONESTCHOI : cleaned:[%d]\n", __FUNCTION__, __LINE__, cleaned);
 		work_done += cleaned;
 		clean_complete &= (cleaned < per_ring_budget);
 	}
@@ -6839,6 +6839,7 @@ int ixgbe_setup_tx_resources(struct ixgbe_ring *tx_ring)
 	/* round up to nearest 4K */
 	tx_ring->size = tx_ring->count * sizeof(union ixgbe_adv_tx_desc);
 	tx_ring->size = ALIGN(tx_ring->size, 4096);
+  pr_info("[%s][%d] YHOON tx_ring->size:%d\n", __FUNCTION__, __LINE__, tx_ring->size);
 
 	set_dev_node(dev, numa_node);
 	tx_ring->desc = dma_alloc_coherent(dev,
@@ -12161,7 +12162,7 @@ static int ixgbe_mmap_yhoon(struct file *filp, struct vm_area_struct *vma) {
 	ret1 = io_remap_pfn_range(vma, vma->vm_start, pci_resource_start(pdev, 0) >> PAGE_SHIFT, 4096*8, vma->vm_page_prot);
 
   //pr_info("[%s][%d] %lx\n", __FUNCTION__, __LINE__, (unsigned long)yhoon_adapter->tx_ring[0]->dma);
-	ret2 = io_remap_pfn_range(vma, vma->vm_start+0x1000*8, (unsigned long)yhoon_adapter->tx_ring[0]->dma >> PAGE_SHIFT, 4096*8, vma->vm_page_prot);
+	ret2 = io_remap_pfn_range(vma, vma->vm_start+0x1000*8, (unsigned long)yhoon_adapter->tx_ring[0]->dma >> PAGE_SHIFT, 4096*32, vma->vm_page_prot);
 	return 0;
 }
 
