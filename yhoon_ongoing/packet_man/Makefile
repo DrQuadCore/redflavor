@@ -23,30 +23,37 @@ endif
 CFLAGS := -O2 $(CPPFLAGS) $(INCS)
 
 ifeq ($(USE_GPU), 1)
-SRCS := packet_man.cu
+SRCS = serving_man.cu packet_man.cu
 else
-SRCS := packet_man.cpp
+SRCS = packet_man.cpp
 endif
 #SRCS := packet_man.cpp
 #EXES := $(SRCS:.cpp=).out
-
+EXES = $(SRCS:.cu=).out
 
 #all: driver exes
-all: packet_man.out
+all : serving_man.out packet_man.out
+
+ifeq ($(USE_GPU), 1)
+serving_man.out: serving_man.cu arp.o eth_out.o icmp.o
+	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
+packet_man.out: packet_man.cu arp.o eth_out.o
+	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
+else
+serving_man.out: serving_man.cu arp.o eth_out.o icmp.o
+	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS)
+packet_man.out: packet_man.cpp arp.o eth_out.o
+	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS)
+endif
 
 exes: $(EXES)
+
+icmp.o: icmp.cu
+	$(CXX) -dc $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
 
 arp.o: arp.c 
 
 eth_out.o: eth_out.c 
-
-ifeq ($(USE_GPU), 1)
-packet_man.out: packet_man.cu arp.o eth_out.o
-	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
-else
-packet_man.out: packet_man.cpp arp.o eth_out.o
-	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS)
-endif
 
 clean:
 	rm -f *.o $(EXES) && \

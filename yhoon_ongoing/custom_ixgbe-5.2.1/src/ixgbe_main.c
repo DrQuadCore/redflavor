@@ -40,6 +40,10 @@
 // YHOON~
 #include <linux/fs.h>
 // ~YHOON
+// CKJUNG~
+#include "nv-p2p.h"
+#include "mydrv.h"
+// ~CKJUNG
 #ifdef NETIF_F_TSO
 #include <net/checksum.h>
 #ifdef NETIF_F_TSO6
@@ -92,7 +96,20 @@ static const char ixgbe_overheat_msg[] =
 
 // YHOON
 struct ixgbe_adapter *yhoon_adapter = NULL;
+dma_addr_t dma_addr_to_gddr;
 //~YHOON
+
+// CKJUNG~
+struct my_info {
+    // simple low-performance linked-list implementation
+    struct list_head mr_list;
+    struct mutex lock;
+};
+
+typedef struct my_info my_info_t;
+
+// ~CKJUNG
+
 
 /* ixgbe_pci_tbl - PCI Device ID Table
  *
@@ -174,6 +191,25 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_VERSION);
 
 #define DEFAULT_DEBUG_LEVEL_SHIFT 3
+
+// CKJUNG~
+struct my_mr {
+	struct list_head node;
+	u64 offset;
+	u64 length;
+	u64 p2p_token;
+	u32 va_space;
+	u32 page_size;
+	u64 va;
+	u64 mapped_size;
+	nvidia_p2p_page_table_t *page_table;
+	int cb_flag;
+	cycles_t tm_cycles;
+	unsigned int tsc_khz;
+};
+typedef struct my_mr my_mr_t;
+// ~CKJUNG
+
 
 static struct workqueue_struct *ixgbe_wq;
 
@@ -1253,7 +1289,9 @@ static inline unsigned int ixgbe_rx_offset(struct ixgbe_ring *rx_ring)
 
 
 // yhoon~
+#if 0
 static int count = 0;
+#endif
 // ~yhoon
 static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 				    struct ixgbe_rx_buffer *bi)
@@ -1289,19 +1327,21 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 #endif
 
 	/* map page for use */
-#if 0 // yhoon
+#if 1 // yhoon
 	dma = dma_map_page_attrs(rx_ring->dev, page, 0,
 				 ixgbe_rx_pg_size(rx_ring),
 				 DMA_FROM_DEVICE,
 				 IXGBE_RX_DMA_ATTR);
-  pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
-  pr_info("[%s][%d] YHOON, dma: %016llx virt_to_phys:%016llx\n", __FUNCTION__, __LINE__, dma, virt_to_phys(dma));
+  //pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
+  //pr_info("[%s][%d] YHOON, dma: %016llx virt_to_phys:%016llx\n", __FUNCTION__, __LINE__, dma, virt_to_phys(dma));
 #else
   // YHOON
   //dma = 0xc0080000+4096*count;
-  dma = 0xe0300000+4096*count;
-  //pr_info("[%s][%d] rx_ring->reg_idx:%d dma:%016llx\n", __FUNCTION__, __LINE__, rx_ring->reg_idx, dma);
-  //dma = 0xc02a0000+4096*count;
+  dma = dma_addr_to_gddr + 4096*count;
+  //dma = 0xe0080000+4096*count;
+  //dma = 0xe0300000+4096*count;
+  if(rx_ring->reg_idx == 0)
+    pr_info("[%s][%d] rx_ring->reg_idx:%d dma:%016llx\n", __FUNCTION__, __LINE__, rx_ring->reg_idx, dma);
   count++;
   //pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
   if(!dma)
@@ -10943,6 +10983,7 @@ static int __devinit ixgbe_probe(struct pci_dev *pdev,
 	adapter = netdev_priv(netdev);
 
   // YHOON
+  pr_info("[%s][%d] Setting yhoon_adapter\n", __FUNCTION__, __LINE__);
   yhoon_adapter = adapter;
   // ~YHOON
 
@@ -11989,8 +12030,10 @@ int ixgbe_xmit_one_packet(char *buf, int ringnum)
 	dma_addr_t dma;
 
   pr_info("[%s][%d] YHOON \n", __FUNCTION__, __LINE__);
+  dma = dma_addr_to_gddr;
   // for eins, ckjung
-  dma = 0xe0300000;
+  //dma = 0xe0080000;
+  //dma = 0xe0300000;
   // for yoon
   //dma = 0xc0080000;
 
@@ -12072,18 +12115,29 @@ static int ixgbe_xmit_yhoon(void __user *_params)
 }
 
 #if 1
-static int setup_tx_ring_desc_for_gpu(int ringnum)
+static int setup_tx_rx_ring_desc_for_gpu(int ringnum)
 {
 	struct ixgbe_ring *tx_ring = yhoon_adapter->tx_ring[ringnum];
+	struct ixgbe_ring *rx_ring = yhoon_adapter->rx_ring[ringnum];
 	union ixgbe_adv_tx_desc *tx_desc = NULL;
+	union ixgbe_adv_rx_desc *rx_desc = NULL;
   int i;
 	dma_addr_t dma;
   u32 cmd_type_len;
+	struct ixgbe_tx_buffer *tx_buffer;
+	struct ixgbe_rx_buffer *rx_buffer;
 
-  pr_info("[%s][%d] YHOON \n", __FUNCTION__, __LINE__);
+  // unmap previous dma mapping
+	//for (i = tx_ring->count-1; i>=0; i--) {
+	//	tx_buffer = &tx_ring->tx_buffer_info[i];
+	//	ixgbe_unmap_and_free_tx_resource(tx_ring, tx_buffer);
+	//}
 
+  pr_info("[%s][%d] %lx\n", __FUNCTION__, __LINE__, (unsigned long)dma_addr_to_gddr);
   for(i = 0; i < tx_ring->count; i++) {
-    dma = 0xe0300000 + 0x1000 * i;
+    dma = dma_addr_to_gddr + 0x1000*i;
+    //dma = 0xe0080000 + 0x1000 * i;
+    //dma = 0xe0300000 + 0x1000 * i;
 		tx_desc = IXGBE_TX_DESC(tx_ring, i);
 
     cmd_type_len = IXGBE_ADVTXD_DTYP_DATA |
@@ -12105,9 +12159,105 @@ static int setup_tx_ring_desc_for_gpu(int ringnum)
     tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type_len);
   }
 
+  pr_info("[%s][%d] setting rx-side starts\n", __FUNCTION__, __LINE__);
+  // rx side
+  for(i = tx_ring->count; i < rx_ring->count + tx_ring->count; i++) {
+    rx_buffer = &rx_ring->rx_buffer_info[i];
+    //dma_unmap_page_attrs(rx_ring->dev, rx_buffer->dma,
+    //        ixgbe_rx_pg_size(rx_ring),
+		//			  DMA_FROM_DEVICE,
+		//			  IXGBE_RX_DMA_ATTR);
+    dma = dma_addr_to_gddr + 0x1000*i;
+    //rx_buffer->dma = dma;
+    rx_desc = IXGBE_RX_DESC(rx_ring, i-tx_ring->count);
+		rx_desc->read.pkt_addr = cpu_to_le64(dma);
+  }
+  pr_info("[%s][%d] setting rx-side ends\n", __FUNCTION__, __LINE__);
 	return 1;
 }
 #endif
+
+// CKJUNG~
+#define GPU_PAGE_SHIFT   16
+#define GPU_PAGE_SIZE    ((u64)1 << GPU_PAGE_SHIFT)
+#define GPU_PAGE_OFFSET  (GPU_PAGE_SIZE-1)
+#define GPU_PAGE_MASK    (~GPU_PAGE_OFFSET)
+
+static void mydrv_get_pages_free_callback(void *data)
+{
+    my_mr_t *mr = data;
+    nvidia_p2p_page_table_t *page_table = NULL;
+    //my_info("free callback\n");
+    // DR: can't take the info->lock here due to potential AB-BA
+    // deadlock with internal NV driver lock(s)
+    ACCESS_ONCE(mr->cb_flag) = 1;
+    wmb();
+    page_table = xchg(&mr->page_table, NULL);
+    if (page_table) {
+        nvidia_p2p_free_page_table(page_table);
+        barrier();
+    } else {
+       // my_err("ERROR: free callback, page_table is NULL\n");
+    }
+}
+
+
+static int mydrv_test(void __user *_params)
+{
+	struct MYDRV_IOC_PIN_BUFFER_PARAMS params = {0};
+	int ret = 0;
+	struct nvidia_p2p_page_table *page_table = NULL;
+	u64 page_virt_start;
+	u64 page_virt_end;
+	size_t rounded_size;
+	my_mr_t *mr = NULL;
+
+	if (copy_from_user(&params, _params, sizeof(params))) {
+		//my_err("copy_from_user failed on user pointer %p\n", _params);
+		ret = -EFAULT;
+		//goto out;
+	}
+
+	if (!params.addr) {
+		//my_err("NULL device pointer\n");
+		ret = -EINVAL;
+		//goto out;
+	}
+
+	mr = kmalloc(sizeof(my_mr_t), GFP_KERNEL);
+	if (!mr) {
+		//my_err("can't alloc kernel memory\n");
+		ret = -ENOMEM;
+		//goto out;
+	}
+	memset(mr, 0, sizeof(*mr));
+	// do proper alignment, as required by RM
+	page_virt_start  = params.addr & GPU_PAGE_MASK;
+	//page_virt_end    = (params.addr + params.size + GPU_PAGE_SIZE - 1) & GPU_PAGE_MASK;
+	page_virt_end    = params.addr + params.size - 1;
+	rounded_size     = page_virt_end - page_virt_start + 1;
+	//rounded_size     = (params.addr & GPU_PAGE_OFFSET) + params.size;
+
+	mr->offset       = params.addr & GPU_PAGE_OFFSET;
+	mr->length       = params.size;
+	mr->p2p_token    = params.p2p_token;
+	mr->va_space     = params.va_space;
+	mr->va           = page_virt_start;
+	mr->mapped_size  = rounded_size;
+	mr->page_table   = NULL;
+	mr->cb_flag      = 0;
+	ret = nvidia_p2p_get_pages(0, 0, mr->va, mr->mapped_size, &page_table,mydrv_get_pages_free_callback, mr);
+	printk("CKJUNG:(pa=0x%llx)\n", (page_table->pages[0])->physical_address);
+  dma_addr_to_gddr =(page_table->pages[0])->physical_address;
+// CKJUNG, 171027
+//	g_addr = (page_table->pages[0])->physical_address;
+	return 0; // CKJUNG, temporary 
+}
+
+
+
+// ~CKJUNG
+
 
 static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -12123,7 +12273,18 @@ static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned in
       break;
     case 1:
       pr_info("[%s][%d] YHOON case 1\n", __FUNCTION__, __LINE__);
-      setup_tx_ring_desc_for_gpu(0);
+      setup_tx_rx_ring_desc_for_gpu(0);
+      setup_tx_rx_ring_desc_for_gpu(1);
+      setup_tx_rx_ring_desc_for_gpu(2);
+      setup_tx_rx_ring_desc_for_gpu(3);
+      setup_tx_rx_ring_desc_for_gpu(4);
+      setup_tx_rx_ring_desc_for_gpu(5);
+      setup_tx_rx_ring_desc_for_gpu(6);
+      setup_tx_rx_ring_desc_for_gpu(7);
+      break;
+// CKJUNG~
+    case MYDRV_IOC_PIN_BUFFER:
+      ret = mydrv_test(argp);
       break;
     default:
       pr_info("[%s][%d] YHOON default\n", __FUNCTION__, __LINE__);

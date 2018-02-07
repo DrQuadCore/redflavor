@@ -27,6 +27,7 @@
 #include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <linux/udp.h>
+#include "icmp.h"
 #include "arp.h" 
 
 #include <linux/netdevice.h>   /* struct device, and other headers */
@@ -34,6 +35,19 @@
 #include <linux/in6.h>
 #define ETH_ALEN  6 // YHOON
 #define ARP_PAD_LEN 18 // YHOON
+
+#ifndef TRUE
+#define TRUE (1)
+#endif
+
+#ifndef FALSE
+#define FALSE (0)
+#endif
+
+#ifndef ERROR
+#define ERROR (-1)
+#endif
+
 
 #define HTONS(n) (((((unsigned short)(n) & 0xFF)) << 8) | (((unsigned short)(n) & 0xFF00) >> 8))
 #define NTOHS(n) (((((unsigned short)(n) & 0xFF)) << 8) | (((unsigned short)(n) & 0xFF00) >> 8))
@@ -555,6 +569,64 @@ union ixgbe_adv_tx_desc {
 	} wb;
 };
 
+__device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned char *pkt_data, int len)
+{
+  printf("[%s][%d]\n",__FUNCTION__, __LINE__);
+	/* check and process IPv4 packets */
+	struct iphdr* iph = (struct iphdr *)(pkt_data + sizeof(struct ethhdr));
+	int ip_len = NTOHS(iph->tot_len);
+	int rc = -1;
+
+	/* drop the packet shorter than ip header */
+	if (ip_len < sizeof(struct iphdr))
+    // TODO: define ERROR and FALSE
+		//return ERROR;
+    return -1;
+
+  // TODO: should handle checksum and promiscuous mode
+#if 0
+#ifndef DISABLE_HWCSUM
+	if (mtcp->iom->dev_ioctl != NULL)
+		rc = mtcp->iom->dev_ioctl(mtcp->ctx, ifidx, PKT_RX_IP_CSUM, iph);
+	if (rc == -1 && ip_fast_csum(iph, iph->ihl))
+		return ERROR;
+#else
+	UNUSED(rc);
+	if (ip_fast_csum(iph, iph->ihl))
+		return ERROR;
+#endif
+
+#if !PROMISCUOUS_MODE
+	/* if not promiscuous mode, drop if the destination is not myself */
+	if (iph->daddr != CONFIG.eths[ifidx].ip_addr)
+		//DumpIPPacketToFile(stderr, iph, ip_len);
+		return TRUE;
+#endif
+#endif 
+
+	// see if the version is correct
+	if (iph->version != 0x4 ) {
+    // TODO: define ERROR and FALSE
+		//return FALSE;
+		return -1;
+	}
+	
+  switch (iph->protocol) {
+#if 0
+		case IPPROTO_TCP:
+			return ProcessTCPPacket(mtcp, cur_ts, ifidx, iph, ip_len);
+#endif
+		case IPPROTO_ICMP:
+			return ProcessICMPPacket(iph, ip_len);
+		default:
+			/* currently drop other protocols */
+      // TODO: define FALSE
+			return -1;
+      //return FALSE
+	}
+  //return FALSE
+}
+
 __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned char* d_tx_pkt_buffer, int * tb_alloc_tbl, volatile int* num_turns, volatile uint8_t* io_addr)
 {
   if(blockIdx.x == 0) {
@@ -571,8 +643,16 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
       unsigned char* tx_packet = &d_tx_pkt_buffer[0x1000*threadIdx.x];
       //__threadfence_system();
       if(*(uint16_t*)(rx_packet+12) != 0) {
-        ProcessARPPacket(tx_packet, rx_packet, 60);
-        printf("[%s][%d] %d thread setting tx packet\n", __FUNCTION__, __LINE__, threadIdx.x);
+        struct ethhdr *ethh = (struct ethhdr *)rx_packet;
+        u_short ip_proto = NTOHS(ethh->h_proto);
+        if (ip_proto == ETH_P_ARP) {
+          ProcessARPPacket(tx_packet, rx_packet, 60);
+          printf("[%s][%d] %d thread setting tx packet for ARP\n", __FUNCTION__, __LINE__, threadIdx.x);
+        } else if(ip_proto == ETH_P_IP) {
+          // TODO: passing len from below
+          ProcessIPv4Packet(tx_packet, rx_packet, 1500);
+          printf("[%s][%d] %d thread setting tx packet for IP\n", __FUNCTION__, __LINE__, threadIdx.x);
+        }
         //DumpPacket((uint8_t*)tx_packet, 60);
       }
       tb_alloc_tbl[3] = 1; // set for tx 

@@ -29,6 +29,9 @@ ifneq ($(KERNELRELEASE),)
 #
 
 obj-$(CONFIG_IXGBE) += ixgbe.o
+# CKJUNG~
+obj-m += nv-p2p-dummy.o
+# ~CKJUNG
 
 define ixgbe-y
 	ixgbe_main.o
