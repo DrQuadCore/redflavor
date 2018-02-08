@@ -27,7 +27,7 @@
 #include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <linux/udp.h>
-#include "icmp.h"
+#include "icmp.cu.h"
 #include "arp.h" 
 
 #include <linux/netdevice.h>   /* struct device, and other headers */
@@ -35,6 +35,7 @@
 #include <linux/in6.h>
 #define ETH_ALEN  6 // YHOON
 #define ARP_PAD_LEN 18 // YHOON
+#define IP_HEADER_LEN 20
 
 #ifndef TRUE
 #define TRUE (1)
@@ -83,8 +84,6 @@ using namespace std;
 #define OUT cout
 
 
-#define HTONS(n) (((((unsigned short)(n) & 0xFF)) << 8) | (((unsigned short)(n) & 0xFF00) >> 8))
-#define NTOHS(n) (((((unsigned short)(n) & 0xFF)) << 8) | (((unsigned short)(n) & 0xFF00) >> 8))
 enum mycopy_msg_level {
     MYCOPY_MSG_DEBUG = 1,
     MYCOPY_MSG_INFO,
@@ -220,7 +219,6 @@ __device__ void DumpARPPacket(struct arphdr *arph)
 
 
 __device__ uint8_t * EthernetOutput(uint8_t *buf, uint16_t h_proto, unsigned char* src_haddr, unsigned char* dst_haddr, uint16_t iplen)
-//uint8_t * EthernetOutput(uint8_t *buf, uint16_t h_proto, unsigned char* src_haddr, unsigned char* dst_haddr, uint16_t iplen)
 {
 	struct ethhdr *ethh;
 	int i;
@@ -381,6 +379,7 @@ __device__ static int ProcessARPRequest(struct arphdr *arph, uint8_t* d_tx_pkt_b
   return 0;
 }
 
+// TODO
 __device__ static int ProcessARPReply(struct arphdr *arph)
 {
   DumpARPPacket(arph);
@@ -400,6 +399,7 @@ __device__ int ProcessARPPacket(unsigned char* d_tx_pkt_buffer, unsigned char *p
 
     case arp_op_reply:
       printf("[%s][%d] arp_op_reply\n", __FUNCTION__, __LINE__);
+      // TODO
       ProcessARPReply(arph);
       break;
 
@@ -569,13 +569,242 @@ union ixgbe_adv_tx_desc {
 	} wb;
 };
 
+#define IP_NEXT_PTR(iph) ((uint8_t *)iph + (iph->ihl << 2))
+
+
+__device__ void 
+DumpICMPPacket(struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
+{
+  printf("[%s][%d] \n", __FUNCTION__, __LINE__);
+  uint8_t* _saddr = (uint8_t*) &saddr;
+  uint8_t* _daddr = (uint8_t*) &daddr;
+
+	printf("ICMP header: \n");
+  printf("Type: %d, "
+      "Code: %d, ID: %d, Sequence: %d\n", 
+      icmph->icmp_type, icmph->icmp_code,
+      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
+
+  printf("Sender IP: %u.%u.%u.%u\n",
+      *_saddr++, *_saddr++, *_saddr++, *_saddr);
+  printf("Target IP: %u.%u.%u.%u\n",
+      *_daddr++, *_daddr++, *_daddr++, *_daddr);
+}
+
+#if 0
+__device__ void 
+DumpICMPPacket(struct icmphdr *icmph, uint8_t* saddr, uint8_t* daddr)
+{
+	printf("ICMP header: \n");
+  printf("Type: %d, "
+      "Code: %d, ID: %d, Sequence: %d\n", 
+      icmph->icmp_type, icmph->icmp_code,
+      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
+
+  printf("Sender IP: %u.%u.%u.%u\n",
+      *saddr++, *saddr++, *saddr++, *saddr);
+  printf("Target IP: %u.%u.%u.%u\n",
+      *daddr++, *daddr++, *daddr++, *daddr);
+}
+#endif
+
+__device__ uint8_t *
+IPOutputStandalone(unsigned char* d_tx_pkt_buffer, uint8_t protocol, 
+		uint16_t ip_id, uint32_t saddr, uint32_t daddr, uint16_t payloadlen)
+{
+  printf("[%s][%d]\n", __FUNCTION__, __LINE__);
+	struct iphdr *iph;
+	int nif;
+	unsigned char * haddr;
+	int rc = -1;
+
+// TODO: when daddr is not known yet.
+// This should be done with handling arp reply
+#if 0
+	nif = GetOutputInterface(daddr);
+	if (nif < 0)
+		return NULL;
+
+	haddr = GetDestinationHWaddr(daddr);
+	if (!haddr) {
+#if 0
+		uint8_t *da = (uint8_t *)&daddr;
+		TRACE_INFO("[WARNING] The destination IP %u.%u.%u.%u "
+				"is not in ARP table!\n",
+				da[0], da[1], da[2], da[3]);
+#endif
+		RequestARP(mtcp, daddr, nif, mtcp->cur_ts);
+		return NULL;
+	}
+#endif
+
+#if 0
+	iph = (struct iphdr *)EthernetOutput(d_tx_pkt_buffer, ETH_P_IP, saddr, daddr, payloadlen + IP_HEADER_LEN);
+	if (!iph) {
+		return NULL;
+	}
+
+	iph->ihl = IP_HEADER_LEN >> 2;
+	iph->version = 4;
+	iph->tos = 0;
+	iph->tot_len = HTONS(IP_HEADER_LEN + payloadlen);
+	iph->id = HTONS(ip_id);
+	iph->frag_off = HTONS(IP_DF);	// no fragmentation
+	iph->ttl = 64;
+	iph->protocol = protocol;
+	iph->saddr = saddr;
+	iph->daddr = daddr;
+	iph->check = 0;
+
+#ifndef DISABLE_HWCSUM	
+  if (mtcp->iom->dev_ioctl != NULL) {
+		switch(iph->protocol) {
+		case IPPROTO_TCP:
+			rc = mtcp->iom->dev_ioctl(mtcp->ctx, nif, PKT_TX_TCPIP_CSUM_PEEK, iph);
+			break;
+		case IPPROTO_ICMP:
+			rc = mtcp->iom->dev_ioctl(mtcp->ctx, nif, PKT_TX_IP_CSUM, iph);
+			break;
+		}
+	}
+	/* otherwise calculate IP checksum in S/W */
+	if (rc == -1)
+		iph->check = ip_fast_csum(iph, iph->ihl);
+#else
+	UNUSED(rc);
+	iph->check = ip_fast_csum(iph, iph->ihl);
+#endif
+
+#endif
+	return (uint8_t *)(iph + 1);
+}
+
+__device__ static int
+ICMPOutput(unsigned char* d_tx_pkt_buffer, uint32_t saddr, uint32_t daddr,
+	   uint8_t icmp_type, uint8_t icmp_code, uint16_t icmp_id, uint16_t icmp_seq,
+	   uint8_t *icmpd, uint16_t len)
+{
+	struct icmphdr *icmph;
+  printf("[%s][%d]\n", __FUNCTION__, __LINE__);
+
+  printf("33 %u %u\n", saddr, daddr);
+	icmph = (struct icmphdr *)IPOutputStandalone(
+      d_tx_pkt_buffer, IPPROTO_ICMP, 0, saddr, daddr, sizeof(struct icmphdr) + len);
+	if (!icmph)
+		return -1;
+#if 0
+	/* Fill in the icmp header */
+	icmph->icmp_type = icmp_type;
+	icmph->icmp_code = icmp_code;
+	icmph->icmp_checksum = 0;
+	ICMP_ECHO_SET_ID(icmph, htons(icmp_id));
+	ICMP_ECHO_SET_SEQ(icmph, htons(icmp_seq));
+	
+	/* Fill in the icmp data */
+	if (len > 0)
+		memcpy((void *)(icmph + 1), icmpd, len);
+	
+	/* Calculate ICMP Checksum with header and data */
+	icmph->icmp_checksum = 
+		ICMPChecksum((uint16_t *)icmph, sizeof(struct icmphdr) + len);
+	
+	DumpICMPPacket(icmph, saddr, daddr);
+#endif
+	return 0;
+}
+
+__device__ static int 
+ProcessICMPECHORequest(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
+{
+	int ret = 0;
+	struct icmphdr *icmph = (struct icmphdr *) IP_NEXT_PTR(iph);
+	
+	/* Check correctness of ICMP checksum and send ICMP echo reply */
+  // TODO
+#if 0 
+	if (ICMPChecksum((uint16_t *) icmph, len - (iph->ihl << 2)) )
+		ret = ERROR;
+	else
+#endif
+    // RESOLVING MISALINGED ERROR
+  uint16_t* _saddr = (uint16_t*)&(iph->saddr);
+  uint16_t* _daddr = (uint16_t*)&(iph->daddr);
+  uint32_t saddr = 0;
+  uint32_t daddr = 0;
+  memcpy(&saddr, _saddr, 4);
+  memcpy(&daddr, _daddr, 4);
+
+  printf("22 %u %u\n", saddr, daddr);
+  ICMPOutput(d_tx_pkt_buffer, daddr, saddr, ICMP_ECHOREPLY, 0, 
+      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)), 
+      (uint8_t *) (icmph + 1),
+      (uint16_t) (len - (iph->ihl << 2) - sizeof(struct icmphdr)) );
+
+  return ret;
+}
+
+__device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
+{
+  printf("[%s][%d]\n",__FUNCTION__, __LINE__);
+  //uint8_t* _saddr = (uint8_t*) &(iph->saddr);
+  //uint8_t* _daddr = (uint8_t*) &(iph->daddr);
+#if 1
+	struct icmphdr *icmph = (struct icmphdr *) IP_NEXT_PTR(iph);
+	int i;
+  // TODO : should we do the following?
+#if 0
+	int to_me = -1;
+	
+	/* process the icmp messages destined to me */
+	for (i = 0; i < CONFIG.eths_num; i++) {
+		if (iph->daddr == CONFIG.eths[i].ip_addr) {
+			to_me = TRUE;
+		}
+	}
+	
+	if (!to_me)
+		return TRUE;
+#endif
+	
+  // need to re-align for cuda
+  uint16_t* _saddr = (uint16_t*)&(iph->saddr);
+  uint16_t* _daddr = (uint16_t*)&(iph->daddr);
+  uint32_t saddr = 0;
+  uint32_t daddr = 0;
+  memcpy(&saddr, _saddr, 4);
+  memcpy(&daddr, _daddr, 4);
+
+  printf("11 %u %u\n", saddr, daddr);
+  switch (icmph->icmp_type) {
+        case ICMP_ECHO:
+          printf("[%s][%d] [INFO] ICMP_ECHO received\n", __FUNCTION__, __LINE__);
+          DumpICMPPacket(icmph, saddr, daddr);
+          ProcessICMPECHORequest(d_tx_pkt_buffer, iph, len);
+          break;
+		
+        case ICMP_DEST_UNREACH:
+          printf("[INFO] ICMP Destination Unreachable message received\n");
+          break;
+		
+        case ICMP_TIME_EXCEEDED:
+          printf("[INFO] ICMP Time Exceeded message received\n");
+          break;
+
+        default:
+          printf("[INFO] Unsupported ICMP message type %x received\n", icmph->icmp_type);
+          break;
+  }
+#endif
+  return TRUE;
+}
+
+
 __device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned char *pkt_data, int len)
 {
   printf("[%s][%d]\n",__FUNCTION__, __LINE__);
 	/* check and process IPv4 packets */
 	struct iphdr* iph = (struct iphdr *)(pkt_data + sizeof(struct ethhdr));
 	int ip_len = NTOHS(iph->tot_len);
-	int rc = -1;
 
 	/* drop the packet shorter than ip header */
 	if (ip_len < sizeof(struct iphdr))
@@ -617,7 +846,7 @@ __device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned
 			return ProcessTCPPacket(mtcp, cur_ts, ifidx, iph, ip_len);
 #endif
 		case IPPROTO_ICMP:
-			return ProcessICMPPacket(iph, ip_len);
+			return ProcessICMPPacket(d_tx_pkt_buffer, iph, ip_len);
 		default:
 			/* currently drop other protocols */
       // TODO: define FALSE
@@ -1006,11 +1235,8 @@ int main(int argc, char *argv[])
   ASSERTRT(cudaMemset(d_pkt_buffer, 0, pkt_buffer_size));
   ASSERTRT(cudaMemset(d_pkt_processing_queue, 0, 4*pkt_buffer_size));
  
-
-  
   unsigned int flag = 1;
   ASSERTDRV(cuPointerSetAttribute(&flag, CU_POINTER_ATTRIBUTE_SYNC_MEMOPS, (CUdeviceptr) d_pkt_buffer));
-
 
   my_t g = my_open();
 
@@ -1098,3 +1324,5 @@ int main(int argc, char *argv[])
   ASSERT_CUDA(cudaFree(d_pkt_buffer));
   return 0;
 }
+
+#undef IP_NEXT_PTR

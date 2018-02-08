@@ -15,6 +15,7 @@ INCS     := $(CUDA_INC)
 ifeq ($(USE_GPU), 1)
 CPPFLAGS := $(INCS) -D__USE_GPU__ 
 CXX := nvcc
+NVCC := nvcc
 else
 CPPFLAGS := $(INCS) 
 CXX := g++
@@ -36,9 +37,9 @@ all : serving_man.out packet_man.out
 
 ifeq ($(USE_GPU), 1)
 serving_man.out: serving_man.cu arp.o eth_out.o icmp.o
-	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
+	$(NVCC) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
 packet_man.out: packet_man.cu arp.o eth_out.o
-	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
+	$(NVCC) -o $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
 else
 serving_man.out: serving_man.cu arp.o eth_out.o icmp.o
 	$(CXX) -o $@ $^ $(LIBS) $(CPPFLAGS)
@@ -48,10 +49,12 @@ endif
 
 exes: $(EXES)
 
-icmp.o: icmp.cu
-	$(CXX) -dc $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
+icmp.o: icmp.cu icmp.cu.h
+	$(NVCC) -c icmp.cu -arch=compute_30
+#$(NVCC) -dc $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
 
 arp.o: arp.c 
+	$(CXX) -dc $@ $^ $(LIBS) $(CPPFLAGS) -arch=compute_30
 
 eth_out.o: eth_out.c 
 
