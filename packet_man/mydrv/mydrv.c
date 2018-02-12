@@ -228,6 +228,8 @@ static int mydrv_test(my_info_t *info, void __user *_params)
 
     //tmp = ioremap((page_table->pages[0])->physical_address, sizeof(uint64_t));
     //my_info("YHOON:(pa=0x%llx) %u\n", (page_table->pages[0])->physical_address, *tmp);
+    my_info("YHOON:(pa=0x%llx)\n", (page_table->pages[0])->physical_address);
+    my_info("YHOON:(page_size=%u)\n", (page_table->page_size));
     //*tmp = 3;
 
     //my_info("YHOON:(pa=0x%llx) %u\n", (page_table->pages[0])->physical_address, *tmp);

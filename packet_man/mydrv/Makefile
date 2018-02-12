@@ -38,7 +38,6 @@ KDIR := $(MODULES_DIR)/build
 MODULE_DESTDIR := $(MODULES_DIR)/extra/
 DEPMOD := /sbin/depmod
 
-
 REL := $(subst ., , $(subst -, , $(shell uname -r)))
 REL_MAJOR  := $(word 1,$(REL))
 REL_MEDIUM := $(word 2,$(REL))
