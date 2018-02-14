@@ -556,7 +556,7 @@ __global__ void clean_buffer(unsigned char* buffer, unsigned char* buffer2, int 
 
 }
 
-#define NUM_TURN 10
+#define NUM_TURN 4 
 #define COMPILER_BARRIER() asm volatile("" ::: "memory")
 #define cpu_to_le32(x) ((__le32)(__swab32)(x))
 
@@ -590,7 +590,6 @@ __device__ static inline __sum16 csum_fold(unsigned int csum)
 
 __device__ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
-  //printf("ip_fast_csum: %u\n", ihl);
 	const unsigned int *word = (const unsigned int*) iph;
 	const unsigned int *stop = word + ihl;
 	unsigned int csum = 0;
@@ -633,7 +632,6 @@ __device__ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 __device__ void 
 DumpICMPPacket(const char* type, struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
 {
-  printf("[%s][%d] \n", __FUNCTION__, __LINE__);
   uint8_t* _saddr = (uint8_t*) &saddr;
   uint8_t* _daddr = (uint8_t*) &daddr;
 
@@ -662,7 +660,6 @@ DumpICMPPacket(const char* type, struct icmphdr *icmph, uint32_t saddr, uint32_t
 __device__ void 
 DumpICMPPacket(struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
 {
-  printf("[%s][%d] \n", __FUNCTION__, __LINE__);
   uint8_t* _saddr = (uint8_t*) &saddr;
   uint8_t* _daddr = (uint8_t*) &daddr;
 
@@ -708,7 +705,6 @@ __device__ uint8_t *
 IPOutputStandalone(unsigned char* d_tx_pkt_buffer, uint8_t protocol, 
 		uint16_t ip_id, uint32_t saddr, uint32_t daddr, uint16_t payloadlen)
 {
-  //printf("[%s][%d]\n", __FUNCTION__, __LINE__);
 	struct iphdr *iph;
 	int nif;
 	unsigned char * haddr;
@@ -817,11 +813,13 @@ ICMPOutput(unsigned char* d_tx_pkt_buffer, uint32_t saddr, uint32_t daddr,
 		memcpy((void *)(icmph + 1), icmpd, len);
 	
 #if 1
+	//DumpICMPPacket("ICMPChecksum", icmph, saddr, daddr);
 	/* Calculate ICMP Checksum with header and data */
 	icmph->icmp_checksum = 
 		ICMPChecksum((uint16_t *)icmph, sizeof(struct icmphdr) + len);
 #endif
 	
+	//DumpICMPPacket("TX", icmph, saddr, daddr);
 
 	if (ICMPChecksum((uint16_t *) icmph, 64) ) {
     printf("ICMPChecksum returns ERROR\n");
@@ -863,7 +861,6 @@ ProcessICMPECHORequest(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int le
 
 __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
 {
-  //printf("[%s][%d]\n",__FUNCTION__, __LINE__);
   //uint8_t* _saddr = (uint8_t*) &(iph->saddr);
   //uint8_t* _daddr = (uint8_t*) &(iph->daddr);
 #if 1
@@ -900,7 +897,7 @@ __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *i
           break;
 		
         case ICMP_DEST_UNREACH:
-          //printf("[INFO] ICMP Destination Unreachable message received\n");
+          printf("[INFO] ICMP Destination Unreachable message received\n");
           break;
 		
         case ICMP_TIME_EXCEEDED:
@@ -979,7 +976,6 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
     // can be placed somewhere else.
     BEGIN_SINGLE_THREAD_PART {
       tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
-      //printf("tx_tail_for_queue_zero: %u\n", *(uint16_t*)tx_tail_for_queue_zero);
     } END_SINGLE_THREAD_PART;
 
     while(*num_turns < NUM_TURN) {
@@ -1038,13 +1034,17 @@ __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
             u_short ip_proto = NTOHS(ethh->h_proto);
             if (ip_proto == ETH_P_ARP) {
               desc->read.cmd_type_len |= 60;
+              // TODO
+              desc->read.olinfo_status = 0xf0000;
             } else if(ip_proto == ETH_P_IP) {
-              //printf("Sending ETH_P_IP %x\n", desc->read.cmd_type_len);
-              desc->read.cmd_type_len |= 60;
+              desc->read.cmd_type_len |= 98;
+              // TODO
+              // temporal value for ping msgs
+              desc->read.olinfo_status = 0x188000;
             } else {
               desc->read.cmd_type_len |= 60;
+              desc->read.olinfo_status = 0xf0000;
             }
-            desc->read.olinfo_status = 0xf0000;
             tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
             *(uint16_t*)(d_pkt_buffer+ 0x1000*(i-1)) = 0;
             *(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(i + 1);
@@ -1086,7 +1086,7 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 
   if(blockIdx.x == 0) {
     BEGIN_SINGLE_THREAD_PART {
-      //printf("Entering rx_handler. (Block ID:%d)\n", blockIdx.x);
+      printf("Entering rx_handler. (Block ID:%d)\n", blockIdx.x);
       int mem_index = 0; // why 12??
       while(*num_turns < NUM_TURN) { 
         if(readNoCache(((uint16_t*)&rx_buf[mem_index])) != 0 ) {
@@ -1144,7 +1144,7 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 
 __global__ void doorbell_test(void * io_addr, void * desc, uint32_t curr, int* d_mem, int size)
 {
-  //printf("[%s][%d]\n", __FUNCTION__, __LINE__);
+  printf("[%s][%d]\n", __FUNCTION__, __LINE__);
   if (blockIdx.x == 0) {
     BEGIN_SINGLE_THREAD_PART {
       printf("[%s][%d] in doorbell_test First Block.\n", __FUNCTION__, __LINE__);
@@ -1345,7 +1345,7 @@ int main(int argc, char *argv[])
 
   // CKJUNG, meaning of this?
   size_t pkt_buffer_size = (_pkt_buffer_size + GPU_PAGE_SIZE - 1) & GPU_PAGE_MASK;
-  //printf("[%s][%d]____CKJUNG__pkt_buffer_size: %lu\n", __FUNCTION__, __LINE__, pkt_buffer_size);
+  printf("[%s][%d]____CKJUNG__pkt_buffer_size: %lu\n", __FUNCTION__, __LINE__, pkt_buffer_size);
 
   int n_devices = 0;
 
