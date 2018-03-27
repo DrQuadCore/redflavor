@@ -100,6 +100,7 @@ dma_addr_t dma_addr_to_gddr;
 //~YHOON
 
 // CKJUNG~
+int after_gpu = 0;
 struct my_info {
     // simple low-performance linked-list implementation
     struct list_head mr_list;
@@ -811,6 +812,9 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 	unsigned int budget = q_vector->tx.work_limit;
 	unsigned int i = tx_ring->next_to_clean;
 
+
+	//printk("CKJUNG____clean_tx_irq____tx_ring:%d\n", tx_ring->reg_idx);
+
 	if (test_bit(__IXGBE_DOWN, &adapter->state))
 		return true;
 
@@ -845,14 +849,18 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 		dev_kfree_skb_any(tx_buffer->skb);
 
 		/* unmap skb header data */
-		dma_unmap_single(tx_ring->dev,
-				 dma_unmap_addr(tx_buffer, dma),
-				 dma_unmap_len(tx_buffer, len),
-				 DMA_TO_DEVICE);
+		// CKJUNG 18.03.12
+//		if (after_gpu == 0) {
+			dma_unmap_single(tx_ring->dev,
+					dma_unmap_addr(tx_buffer, dma),
+					dma_unmap_len(tx_buffer, len),
+					DMA_TO_DEVICE);
+//		}
 
 		/* clear tx_buffer data */
 		tx_buffer->skb = NULL;
 		dma_unmap_len_set(tx_buffer, len, 0);
+		
 
 		/* unmap remaining buffers */
 		while (tx_desc != eop_desc) {
@@ -866,6 +874,9 @@ static bool ixgbe_clean_tx_irq(struct ixgbe_q_vector *q_vector,
 			}
 
 			/* unmap any remaining paged data */
+			// CKJUNG 18.03.12
+			
+			//if (dma_unmap_len(tx_buffer, len) && after_gpu == 0) {
 			if (dma_unmap_len(tx_buffer, len)) {
 				dma_unmap_page(tx_ring->dev,
 					       dma_unmap_addr(tx_buffer, dma),
@@ -1259,7 +1270,6 @@ static bool ixgbe_alloc_mapped_skb(struct ixgbe_ring *rx_ring,
 		bi->skb = skb;
 
 	}
-
 	dma = dma_map_single(rx_ring->dev, skb->data,
  			     rx_ring->rx_buf_len, DMA_FROM_DEVICE);
 
@@ -1304,8 +1314,10 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 #endif
 
 	/* since we are recycling buffers we should seldom need to alloc */
-	if (likely(page))
+	if (likely(page)){
+	//	printk("CKJUNG___alloc_mapped_page__TRUE!!\n");
 		return true;
+	}
 
 	/* alloc new page for storage */
 	page = alloc_pages(GFP_ATOMIC | __GFP_COLD | __GFP_COMP,
@@ -1328,10 +1340,13 @@ static bool ixgbe_alloc_mapped_page(struct ixgbe_ring *rx_ring,
 
 	/* map page for use */
 #if 1 // yhoon
+	// CKJUNG
+#if 1
 	dma = dma_map_page_attrs(rx_ring->dev, page, 0,
 				 ixgbe_rx_pg_size(rx_ring),
 				 DMA_FROM_DEVICE,
 				 IXGBE_RX_DMA_ATTR);
+#endif
   //pr_info("[%s][%d] YHOON, current count:%d current dma:%016llx\n", __FUNCTION__, __LINE__, count, dma);
   //pr_info("[%s][%d] YHOON, dma: %016llx virt_to_phys:%016llx\n", __FUNCTION__, __LINE__, dma, virt_to_phys(dma));
 #else
@@ -1383,7 +1398,7 @@ void ixgbe_alloc_rx_buffers(struct ixgbe_ring *rx_ring, u16 cleaned_count)
 #ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
 	u16 bufsz;
 #endif
-  pr_info("[%s][%d] YHOON rx_ring:%d, next_to_use:%d\n", __FUNCTION__, __LINE__,rx_ring->reg_idx, i);
+//  pr_info("[%s][%d] YHOON rx_ring:%d, next_to_use:%d\n", __FUNCTION__, __LINE__,rx_ring->reg_idx, i);
 
 	/* nothing to do */
 	if (!cleaned_count)
@@ -1392,6 +1407,7 @@ void ixgbe_alloc_rx_buffers(struct ixgbe_ring *rx_ring, u16 cleaned_count)
 	rx_desc = IXGBE_RX_DESC(rx_ring, i);
 	bi = &rx_ring->rx_buffer_info[i];
   //pr_info("[%s][%d] YHOON, current dma:%016llx\n", __FUNCTION__, __LINE__, bi->dma);
+//	pr_info("[%s][%d] YHOON1 rx_ring:%d, next_to_use:%d dma:%x read.pkt_addr:%x\n", __FUNCTION__, __LINE__, rx_ring->reg_idx, i, (bi)->dma, (rx_desc)->read.pkt_addr);
 	i -= rx_ring->count;
 #ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
 
@@ -1421,7 +1437,22 @@ void ixgbe_alloc_rx_buffers(struct ixgbe_ring *rx_ring, u16 cleaned_count)
 #else
 		rx_desc->read.pkt_addr = cpu_to_le64(bi->dma + bi->page_offset);
 #endif
-
+#if 0 // CKJUNG 18.03.14 For check
+	i += rx_ring->count;
+	pr_info("[%s][%d] YHOON1 rx_ring:%d, next_to_use:%u dma:%x read.pkt_addr:%x\n", __FUNCTION__, __LINE__, rx_ring->reg_idx, i, (bi)->dma, (rx_desc)->read.pkt_addr);
+	i -= rx_ring->count;
+#endif
+//		printk("CKJUNG____dma_addr_to_gddr = %x\n", dma_addr_to_gddr);
+#if 0
+		// CKJUNG ~ 18.03.10
+		if (after_gpu != 0) // Just for Clean-irq
+		{
+			bi->dma = dma_addr_to_gddr + 0x1000*(i + rx_ring->count + rx_ring->count);
+	//		printk("CKJUNG___after_gpu, dma=%x\n", bi->dma);
+			rx_desc->read.pkt_addr = cpu_to_le64(bi->dma);
+		}		
+		// ~ CKJUNG
+#endif
 		rx_desc++;
 		bi++;
 		i++;
@@ -3047,9 +3078,13 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 		ixgbe_update_dca(q_vector);
 #endif /* CONFIG_DCA */
 
+// CKJUNG~ 18.03.10
+#if 1
 	ixgbe_for_each_ring(ring, q_vector->tx)
 		clean_complete &= ixgbe_clean_tx_irq(q_vector, ring);
- 
+#endif
+	// ~CKJUNG
+
 #if 0 // YHOON check for ring numbering 
   i = 0;
   
@@ -3079,7 +3114,8 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 		per_ring_budget = max(budget/q_vector->rx.count, 1);
 	else
 		per_ring_budget = budget;
-
+// CKJUNG~ 18.03.10
+#if 1
 	ixgbe_for_each_ring(ring, q_vector->rx) {
 		int cleaned = ixgbe_clean_rx_irq(q_vector, ring,
 						 per_ring_budget);
@@ -3088,6 +3124,8 @@ int ixgbe_poll(struct napi_struct *napi, int budget)
 		work_done += cleaned;
 		clean_complete &= (cleaned < per_ring_budget);
 	}
+#endif
+	// ~CKJUNG
 
 #ifdef HAVE_NDO_BUSY_POLL
 	ixgbe_qv_unlock_napi(q_vector);
@@ -5905,6 +5943,8 @@ static void ixgbe_configure(struct ixgbe_adapter *adapter)
 	ixgbe_configure_pb(adapter);
 	ixgbe_configure_dcb(adapter);
 
+//	printk("CKJUNG____ixgbe_configure!!\n");
+
 	/*
 	 * We must restore virtualization before VLANs or else
 	 * the VLVF registers will not be populated
@@ -6881,6 +6921,7 @@ int ixgbe_setup_tx_resources(struct ixgbe_ring *tx_ring)
 	tx_ring->size = ALIGN(tx_ring->size, 4096);
   pr_info("[%s][%d] YHOON tx_ring->size:%d\n", __FUNCTION__, __LINE__, tx_ring->size);
 
+#if 1
 	set_dev_node(dev, numa_node);
 	tx_ring->desc = dma_alloc_coherent(dev,
 					   tx_ring->size,
@@ -6892,7 +6933,7 @@ int ixgbe_setup_tx_resources(struct ixgbe_ring *tx_ring)
 						   &tx_ring->dma, GFP_KERNEL);
 	if (!tx_ring->desc)
 		goto err;
-
+#endif
 	return 0;
 
 err:
@@ -6961,7 +7002,7 @@ int ixgbe_setup_rx_resources(struct ixgbe_ring *rx_ring)
 	/* Round up to nearest 4K */
 	rx_ring->size = rx_ring->count * sizeof(union ixgbe_adv_rx_desc);
 	rx_ring->size = ALIGN(rx_ring->size, 4096);
-
+#if 1
 	set_dev_node(dev, numa_node);
 	rx_ring->desc = dma_alloc_coherent(dev,
 					   rx_ring->size,
@@ -6973,7 +7014,7 @@ int ixgbe_setup_rx_resources(struct ixgbe_ring *rx_ring)
 						   &rx_ring->dma, GFP_KERNEL);
 	if (!rx_ring->desc)
 		goto err;
-
+#endif
 	return 0;
 err:
 	vfree(rx_ring->rx_buffer_info);
@@ -8720,6 +8761,7 @@ static void ixgbe_tx_csum(struct ixgbe_ring *tx_ring,
 	struct sk_buff *skb = first->skb;
 	u32 vlan_macip_lens = 0;
 	u32 type_tucmd = 0;
+	printk("CKJUNG__ixgbe_tx_csum!\n");
 
 	if (skb->ip_summed != CHECKSUM_PARTIAL) {
 csum_failed:
@@ -9087,6 +9129,7 @@ static int ixgbe_tx_map(struct ixgbe_ring *tx_ring,
 
 	size = skb_headlen(skb);
 	data_len = skb->data_len;
+//	printk("CKJUNG_________________%s_____________________\n", __FUNCTION__);
 
 #if IS_ENABLED(CONFIG_FCOE)
 	if (tx_flags & IXGBE_TX_FLAGS_FCOE) {
@@ -9115,9 +9158,22 @@ static int ixgbe_tx_map(struct ixgbe_ring *tx_ring,
 
 		/* record length, and DMA address */
 		dma_unmap_len_set(tx_buffer, len, size);
-		dma_unmap_addr_set(tx_buffer, dma, dma);
+		// CKJUNG 18.03.12
+		//dma_unmap_addr_set(tx_buffer, dma, dma);
+		if (after_gpu == 0 || tx_ring->reg_idx != 0)
+			dma_unmap_addr_set(tx_buffer, dma, dma);
 
-		tx_desc->read.buffer_addr = cpu_to_le64(dma);
+
+		//tx_desc->read.buffer_addr = cpu_to_le64(dma);
+		// CKJUNG 18.03.12
+		if (after_gpu == 0 || tx_ring->reg_idx != 0 ){ 
+			tx_desc->read.buffer_addr = cpu_to_le64(dma);
+		} else {
+			tx_desc->read.buffer_addr = cpu_to_le64(tx_buffer->dma);
+		}
+			pr_info("[%s][%d] YHOON2 tx_ring:%d dma:%x tx_buffer->dma:%x\n", __FUNCTION__, __LINE__, tx_ring->reg_idx,
+					   dma, tx_buffer->dma);                                                       
+		
 
 		while (unlikely(size > IXGBE_MAX_DATA_PER_TXD)) {
 			tx_desc->read.cmd_type_len =
@@ -9134,7 +9190,12 @@ static int ixgbe_tx_map(struct ixgbe_ring *tx_ring,
 			dma += IXGBE_MAX_DATA_PER_TXD;
 			size -= IXGBE_MAX_DATA_PER_TXD;
 
+			//CKJUNG ~ 18.03.12
+		if (after_gpu == 0 || tx_ring->reg_idx != 0 ){ 
 			tx_desc->read.buffer_addr = cpu_to_le64(dma);
+		}else{
+			tx_desc->read.buffer_addr = cpu_to_le64(tx_buffer->dma);
+		}
 		}
 
 		if (likely(!data_len))
@@ -9484,6 +9545,7 @@ netdev_tx_t ixgbe_xmit_frame_ring(struct sk_buff *skb,
 	u16 count = TXD_USE_COUNT(skb_headlen(skb));
 	__be16 protocol = skb->protocol;
 	u8 hdr_len = 0;
+//	printk("CKJUNG____xmit_frame_ring\n");
 
 	/*
 	 * need: 1 descriptor per page * PAGE_SIZE/IXGBE_MAX_DATA_PER_TXD,
@@ -12133,9 +12195,12 @@ static int setup_tx_rx_ring_desc_for_gpu(int ringnum)
 	//	ixgbe_unmap_and_free_tx_resource(tx_ring, tx_buffer);
 	//}
 
-  pr_info("[%s][%d] QUEUE:%d\n", __FUNCTION__, __LINE__, yhoon_adapter->num_tx_queues);
-  pr_info("[%s][%d] %lx\n", __FUNCTION__, __LINE__, (unsigned long)dma_addr_to_gddr);
+//  pr_info("[%s][%d] QUEUE:%d\n", __FUNCTION__, __LINE__, yhoon_adapter->num_tx_queues);
+//  pr_info("[%s][%d] %lx\n", __FUNCTION__, __LINE__, (unsigned long)dma_addr_to_gddr);
+// CKJUNG 18.03.14
+	if(ringnum == 0) {
   for(i = 0; i < tx_ring->count; i++) {
+    tx_buffer = &tx_ring->tx_buffer_info[i];
     dma = dma_addr_to_gddr + 0x1000*i;
     //dma = 0xe0080000 + 0x1000 * i;
     //dma = 0xe0300000 + 0x1000 * i;
@@ -12158,12 +12223,15 @@ static int setup_tx_rx_ring_desc_for_gpu(int ringnum)
 
     tx_desc->read.buffer_addr = cpu_to_le64(dma);
     tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type_len);
+		tx_buffer->dma = dma;
   }
+	}
 
-  pr_info("[%s][%d] setting rx-side starts. ringnum:%d\n", __FUNCTION__, __LINE__, ringnum);
+ // pr_info("[%s][%d] setting rx-side starts. ringnum:%d\n", __FUNCTION__, __LINE__, ringnum);
   // rx side
   for(i = tx_ring->count; i < rx_ring->count + tx_ring->count; i++) {
-    rx_buffer = &rx_ring->rx_buffer_info[i];
+    rx_buffer = &rx_ring->rx_buffer_info[i-tx_ring->count];
+		
     //dma_unmap_page_attrs(rx_ring->dev, rx_buffer->dma,
     //        ixgbe_rx_pg_size(rx_ring),
 		//			  DMA_FROM_DEVICE,
@@ -12172,8 +12240,10 @@ static int setup_tx_rx_ring_desc_for_gpu(int ringnum)
     //rx_buffer->dma = dma;
     rx_desc = IXGBE_RX_DESC(rx_ring, i-tx_ring->count);
 		rx_desc->read.pkt_addr = cpu_to_le64(dma);
+		rx_buffer->dma = dma;
   }
-  pr_info("[%s][%d] setting rx-side ends\n", __FUNCTION__, __LINE__);
+//  pr_info("[%s][%d] setting rx-side ends\n", __FUNCTION__, __LINE__);
+	after_gpu = 1;
 	return 1;
 }
 #endif
@@ -12275,6 +12345,7 @@ static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned in
     case 1:
       pr_info("[%s][%d] YHOON case 1\n", __FUNCTION__, __LINE__);
       setup_tx_rx_ring_desc_for_gpu(0);
+#if 1
       setup_tx_rx_ring_desc_for_gpu(1);
       setup_tx_rx_ring_desc_for_gpu(2);
       setup_tx_rx_ring_desc_for_gpu(3);
@@ -12286,6 +12357,7 @@ static int ixgbe_ioctl_yhoon(struct inode *inode, struct file *filp, unsigned in
       setup_tx_rx_ring_desc_for_gpu(9);
       setup_tx_rx_ring_desc_for_gpu(10);
       setup_tx_rx_ring_desc_for_gpu(11);
+#endif
       break;
 // CKJUNG~
     case MYDRV_IOC_PIN_BUFFER:

@@ -95,7 +95,7 @@ enum mycopy_msg_level {
 
 //#define __USE_PKT_MONITOR__
 #define NUM_PACKETS 500
-#define THREADS_PER_TB 512 
+#define THREADS_PER_TB 512
 
 #define RX_TB 0
 #define PP_TB 1
@@ -167,6 +167,7 @@ static void my_msg(enum mycopy_msg_level lvl, const char* fmt, ...)
 
 #define DBGMSG 1
 
+// CKJUNG 18.03.01
 __device__ uint32_t d_curr_of_processing_queue = 0;
 __device__ uint32_t d_processing_queue_size = 8 * 512;
 
@@ -249,6 +250,82 @@ __device__ uint8_t * EthernetOutput(uint8_t *buf, uint16_t h_proto, unsigned cha
 	return (uint8_t *)(ethh + 1);
 }
 
+#define IP_NEXT_PTR(iph) ((uint8_t *)iph + (iph->ihl << 2))
+
+
+__device__ void 
+DumpICMPPacket(const char* type, struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
+{
+  uint8_t* _saddr = (uint8_t*) &saddr;
+  uint8_t* _daddr = (uint8_t*) &daddr;
+
+	printf("ICMP header: \n");
+  printf("Type: %d, "
+      "Code: %d, ID: %d, Sequence: %d\n", 
+      icmph->icmp_type, icmph->icmp_code,
+      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
+
+  printf("Sender IP: %u.%u.%u.%u\n",
+      *_saddr++, *_saddr++, *_saddr++, *_saddr);
+  printf("Target IP: %u.%u.%u.%u\n",
+      *_daddr++, *_daddr++, *_daddr++, *_daddr);
+
+  printf("%s--------------------------------------------\n", type);
+  for(int i=0; i<64; i+=2) {
+    printf("%x ", *(((uint8_t*)icmph) + i));
+    printf("%x ", *(((uint8_t*)icmph) + i+1));
+    if(i%20==0)
+      printf("\n");
+  }
+  printf("\n--------------------------------------------\n");
+}
+
+
+__device__ void 
+DumpICMPPacket(struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
+{
+  uint8_t* _saddr = (uint8_t*) &saddr;
+  uint8_t* _daddr = (uint8_t*) &daddr;
+
+	printf("ICMP header: \n");
+  printf("Type: %d, "
+      "Code: %d, ID: %d, Sequence: %d\n", 
+      icmph->icmp_type, icmph->icmp_code,
+      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
+
+  printf("Sender IP: %u.%u.%u.%u\n",
+      *_saddr++, *_saddr++, *_saddr++, *_saddr);
+  printf("Target IP: %u.%u.%u.%u\n",
+      *_daddr++, *_daddr++, *_daddr++, *_daddr);
+
+  printf("--------------------------------------------\n");
+  for(int i=0; i<100; i+=2) {
+    printf("%x ", *(((uint8_t*)icmph) + i));
+    printf("%x ", *(((uint8_t*)icmph) + i+1));
+    if(i%20==0)
+      printf("\n");
+  }
+  printf("\n--------------------------------------------\n");
+}
+
+#if 1
+__device__ void 
+DumpICMPPacket(struct icmphdr *icmph, uint8_t* saddr, uint8_t* daddr)
+{
+	printf("\nICMP header: \n");
+  printf("Type: %d, "
+      "Code: %d, ID: %d, Sequence: %d\n", 
+      icmph->icmp_type, icmph->icmp_code,
+      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
+	printf("ICMP_checksum: 0x%x\n", icmph->icmp_checksum);
+  printf("Sender IP: %u.%u.%u.%u\n",
+      *saddr++, *saddr++, *saddr++, *saddr);
+  printf("Target IP: %u.%u.%u.%u\n",
+      *daddr++, *daddr++, *daddr++, *daddr);
+}
+#endif
+
+
 __device__ void DumpPacket(uint8_t *buf, int len)
 //void DumpPacket(uint8_t *buf, int len)
 {
@@ -302,6 +379,10 @@ __device__ void DumpPacket(uint8_t *buf, int len)
 	if (iph->protocol == IPPROTO_TCP || iph->protocol == IPPROTO_UDP)
 		//printf("(%d)", ntohs(udph->dest));
 		printf("(%d)", NTOHS(udph->dest));
+	else if (iph->protocol == IPPROTO_ICMP){
+		struct icmphdr *icmph = (struct icmphdr *) IP_NEXT_PTR(iph);
+		DumpICMPPacket(icmph, (uint8_t*)&(iph->saddr), (uint8_t*)&(iph->daddr));
+	}
 
 	//printf(" IP_ID=%d", ntohs(iph->id));
 	printf(" IP_ID=%d", NTOHS(iph->id));
@@ -320,7 +401,7 @@ __device__ void DumpPacket(uint8_t *buf, int len)
 	}
 done:
 	printf("len=%d\n", len);
-  printf("<<<DumpPacket>>>-----------------------------------END--------------------------\n");
+  printf("<<<DumpPacket>>>-----------------------------------END--");
 
 }
 
@@ -332,7 +413,8 @@ __device__ static int ARPOutput(uint8_t * d_tx_pkt_buffer, int opcode, uint32_t 
 
   //printf("\n\n\n[%s][%d] Enters\n", __FUNCTION__, __LINE__);
   // ckjung: 00:1b:21:bc:11:52
-  uint8_t src_haddr[ETH_ALEN] = {0x00, 0x1b, 0x21, 0xbc, 0x11, 0x52};
+  //uint8_t src_haddr[ETH_ALEN] = {0x00, 0x1b, 0x21, 0xbc, 0x11, 0x52};
+  uint8_t src_haddr[ETH_ALEN] = {0xa0, 0x36, 0x9f, 0x03, 0x13, 0x86};
 	struct arphdr *arph = 
     (struct arphdr *)(uintptr_t)EthernetOutput(d_tx_pkt_buffer, ETH_P_ARP, src_haddr, dst_haddr, sizeof(struct arphdr));
 
@@ -362,8 +444,12 @@ __device__ static int ARPOutput(uint8_t * d_tx_pkt_buffer, int opcode, uint32_t 
 		memcpy(arph->ar_tha, dst_haddr, arph->ar_hln);
 	}
 #endif
-	memcpy(arph->ar_sha, src_haddr, arph->ar_hln);
-  memcpy(arph->ar_tha, dst_haddr, arph->ar_hln);
+  for(int i=0; i<arph->ar_hln; i++) {
+    arph->ar_sha[i] = src_haddr[i];
+    arph->ar_tha[i] = dst_haddr[i];
+  }
+	//memcpy(arph->ar_sha, src_haddr, arph->ar_hln);
+  //memcpy(arph->ar_tha, dst_haddr, arph->ar_hln);
 	memset(arph->pad, 0, ARP_PAD_LEN);
 
 #if 0
@@ -497,6 +583,7 @@ static inline uint32_t myrand(uint64_t *seed)
 }
 #endif
 
+#if 0
 int curr_num;
 __device__ void d_check_data(int size, volatile int* d_pkt_buffer, volatile int* flag)
 {
@@ -526,6 +613,7 @@ __device__ void d_check_data(int size, volatile int* d_pkt_buffer, volatile int*
 #endif
 
 }
+#endif
 
 #if 0
 __device__ void wait_for_something(volatile int * something_finished)
@@ -539,24 +627,27 @@ __device__ void wait_for_something(volatile int * something_finished)
 
 __device__ unsigned long tail_val;
 __device__ volatile int server_done;
-#define NUM_TB 2 
+#define NUM_TB 1 
 #define NUM_THREADS 512 
 
-__global__ void clean_buffer(unsigned char* buffer, unsigned char* buffer2, int size, char* bm_worked_thread) 
+__global__ void clean_buffer(unsigned char* buffer, unsigned char* buffer2, int size, char* bm_worked_thread, int* tb_status_table) 
 {
+  //for(int i=0; i<size; i++) {
+	// CKJUNG 18.03.01
   for(int i=0; i<size; i++) {
     buffer[i] = 0;
   }
-  for(int i=0; i<4*size; i++) {
+  for(int i=0; i<size; i++) {
     buffer2[i] = 0;
   }
   for(int i=0; i<NUM_THREADS; i++) {
     bm_worked_thread[i] = 0;
-  }
-
+    tb_status_table[i] = 0;
+	}
 }
 
-#define NUM_TURN 10
+//#define NUM_TURN 100
+__device__ int NUM_TURN;
 #define COMPILER_BARRIER() asm volatile("" ::: "memory")
 #define cpu_to_le32(x) ((__le32)(__swab32)(x))
 
@@ -590,7 +681,6 @@ __device__ static inline __sum16 csum_fold(unsigned int csum)
 
 __device__ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
-  //printf("ip_fast_csum: %u\n", ihl);
 	const unsigned int *word = (const unsigned int*) iph;
 	const unsigned int *stop = word + ihl;
 	unsigned int csum = 0;
@@ -626,89 +716,10 @@ __device__ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 	return csum_fold(csum);
 }
 
-
-#define IP_NEXT_PTR(iph) ((uint8_t *)iph + (iph->ihl << 2))
-
-
-__device__ void 
-DumpICMPPacket(const char* type, struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
-{
-  printf("[%s][%d] \n", __FUNCTION__, __LINE__);
-  uint8_t* _saddr = (uint8_t*) &saddr;
-  uint8_t* _daddr = (uint8_t*) &daddr;
-
-	printf("ICMP header: \n");
-  printf("Type: %d, "
-      "Code: %d, ID: %d, Sequence: %d\n", 
-      icmph->icmp_type, icmph->icmp_code,
-      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
-
-  printf("Sender IP: %u.%u.%u.%u\n",
-      *_saddr++, *_saddr++, *_saddr++, *_saddr);
-  printf("Target IP: %u.%u.%u.%u\n",
-      *_daddr++, *_daddr++, *_daddr++, *_daddr);
-
-  printf("%s--------------------------------------------\n", type);
-  for(int i=0; i<64; i+=2) {
-    printf("%x ", *(((uint8_t*)icmph) + i));
-    printf("%x ", *(((uint8_t*)icmph) + i+1));
-    if(i%20==0)
-      printf("\n");
-  }
-  printf("\n--------------------------------------------\n");
-}
-
-
-__device__ void 
-DumpICMPPacket(struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
-{
-  printf("[%s][%d] \n", __FUNCTION__, __LINE__);
-  uint8_t* _saddr = (uint8_t*) &saddr;
-  uint8_t* _daddr = (uint8_t*) &daddr;
-
-	printf("ICMP header: \n");
-  printf("Type: %d, "
-      "Code: %d, ID: %d, Sequence: %d\n", 
-      icmph->icmp_type, icmph->icmp_code,
-      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
-
-  printf("Sender IP: %u.%u.%u.%u\n",
-      *_saddr++, *_saddr++, *_saddr++, *_saddr);
-  printf("Target IP: %u.%u.%u.%u\n",
-      *_daddr++, *_daddr++, *_daddr++, *_daddr);
-
-  printf("--------------------------------------------\n");
-  for(int i=0; i<100; i+=2) {
-    printf("%x ", *(((uint8_t*)icmph) + i));
-    printf("%x ", *(((uint8_t*)icmph) + i+1));
-    if(i%20==0)
-      printf("\n");
-  }
-  printf("\n--------------------------------------------\n");
-}
-
-#if 0
-__device__ void 
-DumpICMPPacket(struct icmphdr *icmph, uint8_t* saddr, uint8_t* daddr)
-{
-	printf("ICMP header: \n");
-  printf("Type: %d, "
-      "Code: %d, ID: %d, Sequence: %d\n", 
-      icmph->icmp_type, icmph->icmp_code,
-      NTOHS(ICMP_ECHO_GET_ID(icmph)), NTOHS(ICMP_ECHO_GET_SEQ(icmph)));
-
-  printf("Sender IP: %u.%u.%u.%u\n",
-      *saddr++, *saddr++, *saddr++, *saddr);
-  printf("Target IP: %u.%u.%u.%u\n",
-      *daddr++, *daddr++, *daddr++, *daddr);
-}
-#endif
-
 __device__ uint8_t *
 IPOutputStandalone(unsigned char* d_tx_pkt_buffer, uint8_t protocol, 
 		uint16_t ip_id, uint32_t saddr, uint32_t daddr, uint16_t payloadlen)
 {
-  //printf("[%s][%d]\n", __FUNCTION__, __LINE__);
 	struct iphdr *iph;
 	int nif;
 	unsigned char * haddr;
@@ -735,9 +746,11 @@ IPOutputStandalone(unsigned char* d_tx_pkt_buffer, uint8_t protocol,
 #endif
 
   //TODO for now, statically sets mac addrs
-  uint8_t src_haddr[ETH_ALEN] = {0x00, 0x1b, 0x21, 0xbc, 0x11, 0x52};
+  //uint8_t src_haddr[ETH_ALEN] = {0x00, 0x1b, 0x21, 0xbc, 0x11, 0x52};
+  uint8_t src_haddr[ETH_ALEN] = {0xa0, 0x36, 0x9f, 0x03, 0x13, 0x86};
   // hw addr for yoon
-  uint8_t dst_haddr[ETH_ALEN] = {0x3c, 0xa3, 0x15, 0x04, 0x88, 0xd3};
+  //uint8_t dst_haddr[ETH_ALEN] = {0x3c, 0xa3, 0x15, 0x04, 0x88, 0xd3};
+  uint8_t dst_haddr[ETH_ALEN] = {0x3c, 0xa3, 0x15, 0x04, 0x86, 0x76};
 	iph = (struct iphdr *)EthernetOutput(d_tx_pkt_buffer, ETH_P_IP, src_haddr, dst_haddr, payloadlen + IP_HEADER_LEN);
 	if (!iph) {
 		return NULL;
@@ -764,16 +777,20 @@ IPOutputStandalone(unsigned char* d_tx_pkt_buffer, uint8_t protocol,
 	//*(uint32_t*)&iph->daddr = daddr;
 	memcpy((uint16_t*)&iph->daddr,&daddr,4);
 
-  __sum16 tmp = ip_fast_csum(iph, iph->ihl);
-	//memcpy((uint16_t*)&iph->check, &tmp, 2);
-  //iph->check = 0;
-	iph->check = ip_fast_csum(iph, iph->ihl);
+	// XXX CKJUNG 18.03.15. Shoud understand why problem occurs from seq 512
+  iph->check = 0;
+  uint16_t tmp = ip_fast_csum(iph, iph->ihl);
+	//printf("CKJUNG___tmp:0x%x\n", ip_fast_csum(iph, iph->ihl));
+	memcpy((uint16_t*)&iph->check, &tmp, 2);
+	//printf("CKJUNG___iph->check:0x%x\n", iph->check);
+	//iph->check = ip_fast_csum(iph, iph->ihl);
 	return (uint8_t *)(iph + 1);
 }
 
 __device__ static uint16_t
 ICMPChecksum(uint16_t *icmph, int len)
 {
+#if 1
 	uint16_t ret = 0;
 	uint32_t sum = 0;
 	uint16_t odd_byte;
@@ -792,6 +809,11 @@ ICMPChecksum(uint16_t *icmph, int len)
 	sum += (sum >> 16);
 	ret =  ~sum;
 	return ret; 
+#endif
+#if 0
+	uint16_t result = 0x12a5;
+	return result;
+#endif
 }
 
 __device__ static int
@@ -817,19 +839,26 @@ ICMPOutput(unsigned char* d_tx_pkt_buffer, uint32_t saddr, uint32_t daddr,
 		memcpy((void *)(icmph + 1), icmpd, len);
 	
 #if 1
+	//DumpICMPPacket("ICMPChecksum", icmph, saddr, daddr);
 	/* Calculate ICMP Checksum with header and data */
+//	icmph->icmp_checksum = 0x12a5;
+#if 1
 	icmph->icmp_checksum = 
 		ICMPChecksum((uint16_t *)icmph, sizeof(struct icmphdr) + len);
 #endif
-	
+#endif
+//	printf("CKJUNG___%s__icmp_checksum:0x%x\n", __FUNCTION__, icmph->icmp_checksum);	
+	//DumpICMPPacket("TX", icmph, saddr, daddr);
 
+#if 0
 	if (ICMPChecksum((uint16_t *) icmph, 64) ) {
     printf("ICMPChecksum returns ERROR\n");
   }
+#endif
 	return 0;
 }
 
-__device__ static int 
+	__device__ static int 
 ProcessICMPECHORequest(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
 {
 	int ret = 0;
@@ -863,10 +892,8 @@ ProcessICMPECHORequest(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int le
 
 __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
 {
-  //printf("[%s][%d]\n",__FUNCTION__, __LINE__);
   //uint8_t* _saddr = (uint8_t*) &(iph->saddr);
   //uint8_t* _daddr = (uint8_t*) &(iph->daddr);
-#if 1
 	struct icmphdr *icmph = (struct icmphdr *) IP_NEXT_PTR(iph);
 	int i;
   // TODO : should we do the following?
@@ -885,22 +912,26 @@ __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *i
 #endif
 	
   // need to re-align for cuda
+#if 0
   uint16_t* _saddr = (uint16_t*)&(iph->saddr);
   uint16_t* _daddr = (uint16_t*)&(iph->daddr);
   uint32_t saddr = 0;
   uint32_t daddr = 0;
   memcpy(&saddr, _saddr, 4);
   memcpy(&daddr, _daddr, 4);
+#endif
 
   switch (icmph->icmp_type) {
         case ICMP_ECHO:
           //printf("[%s][%d] [INFO] ICMP_ECHO received\n", __FUNCTION__, __LINE__);
           //DumpICMPPacket("RX", icmph, saddr, daddr);
           ProcessICMPECHORequest(d_tx_pkt_buffer, iph, len);
+					// CKJUNG 18.03.14
+          //printf("CKJUNG_ProcessICMPPacket_chk:%d\n",ProcessICMPECHORequest(d_tx_pkt_buffer, iph, len));
           break;
 		
         case ICMP_DEST_UNREACH:
-          //printf("[INFO] ICMP Destination Unreachable message received\n");
+          printf("[INFO] ICMP Destination Unreachable message received\n");
           break;
 		
         case ICMP_TIME_EXCEEDED:
@@ -911,7 +942,6 @@ __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *i
           printf("[INFO] Unsupported ICMP message type %x received\n", icmph->icmp_type);
           break;
   }
-#endif
   return TRUE;
 }
 
@@ -976,16 +1006,18 @@ __device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned
 __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned char* d_tx_pkt_buffer, int * tb_status_table, volatile int* num_turns, volatile uint8_t* io_addr)
 {
   if(blockIdx.x == 0) {
-    // can be placed somewhere else.
     BEGIN_SINGLE_THREAD_PART {
+    // can be placed somewhere else.
       tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
-      //printf("tx_tail_for_queue_zero: %u\n", *(uint16_t*)tx_tail_for_queue_zero);
+      printf("[%s][%d] in pp. (%d, %d)\n", __FUNCTION__, __LINE__, readNoCache(&tb_status_table[PP_TB]), *num_turns );
     } END_SINGLE_THREAD_PART;
-
+      
     while(*num_turns < NUM_TURN) {
-      while(!readNoCache(&tb_status_table[PP_TB])) { } 
+      while(!readNoCache(&tb_status_table[PP_TB])) {
+      } 
       // currently d_curr_of_processing_queue is fixed to zero.
-      unsigned char* rx_packet = &d_pkt_processing_queue[d_curr_of_processing_queue * 512 * 0x1000 + 0x1000*threadIdx.x];
+      //unsigned char* rx_packet = &d_pkt_processing_queue[d_curr_of_processing_queue * 512 * 0x1000 + 0x1000*threadIdx.x];
+      unsigned char* rx_packet = &d_pkt_processing_queue[d_curr_of_processing_queue + 0x1000*threadIdx.x];
       unsigned char* tx_packet = &d_tx_pkt_buffer[0x1000*threadIdx.x];
       //__threadfence_system();
       if(*(uint16_t*)(rx_packet+12) != 0) {
@@ -998,95 +1030,203 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
           // TODO: passing len from below
           ProcessIPv4Packet(tx_packet, rx_packet, 1500);
           //printf("[%s][%d] %d thread setting tx packet for IP\n", __FUNCTION__, __LINE__, threadIdx.x);
+        } else {
+          printf("[%s][%d] %d thread unknown protocol\n", __FUNCTION__, __LINE__, threadIdx.x);
         }
         //DumpPacket((uint8_t*)tx_packet, 60);
         *(uint16_t*)(rx_packet+12) = 0;
+      } else {
+        //printf("[%s][%d] %d thread not set\n", __FUNCTION__, __LINE__, threadIdx.x);
       }
+     // __threadfence();
 
       tb_status_table[TX_TB] = 1; // set for tx 
       tb_status_table[PP_TB] = 0; // set for pp
     }
+
+    BEGIN_SINGLE_THREAD_PART {
+    // can be placed somewhere else.
+      printf("[%s][%d] out pp.\n", __FUNCTION__, __LINE__);
+    } END_SINGLE_THREAD_PART;
   }
 }
 
+
+__device__ int tx_curr = 0;
+
+#if 1
+__global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status_table, volatile uint8_t* io_addr, volatile union ixgbe_adv_tx_desc* tx_desc, volatile int* num_turns)
+{
+  BEGIN_SINGLE_THREAD_PART {
+    while(*num_turns < NUM_TURN) {
+      while(!readNoCache(&tb_status_table[TX_TB])) { } 
+      //printf("TX [%2d,%2d]\n", blockIdx.x, threadIdx.x);
+      tb_status_table[TX_TB]=0;
+
+      //volatile unsigned char* tx_packet = &d_pkt_buffer[0x1000*threadIdx.x];
+      //DumpPacket((uint8_t*)tx_packet, 60);
+#if 1
+
+      COMPILER_BARRIER();
+      int tmp = tx_curr;
+      //printf("+(%d) ",tmp);
+      for(int i=0; i<512; i++) {
+        int curr_index = (tmp+ i)%512;
+      //  printf("(%d,%d) ",i, curr_index);
+
+        if(*(uint16_t*)(d_pkt_buffer+ 0x1000*curr_index) != 0) {
+          tx_curr = curr_index;
+        //  printf("-(%d) ",tx_curr);
+          //printf("%dth memory, tx handler finds a packet to send.\n", curr_index);
+          //DumpPacket((uint8_t*)(d_pkt_buffer+0x1000*curr_index), 60);
+
+          // TODO: currently, back to back. batching need to be implemented
+          //printf("TX: Try to send packets using %dth tx_desc.\n",curr_index);
+          //printf("tx_tail_for_queue_zero:%p\n", tx_tail_for_queue_zero);
+          volatile union ixgbe_adv_tx_desc *desc = tx_desc + curr_index;
+          //desc->read.olinfo_status = 0xf0002;
+          COMPILER_BARRIER();
+          struct ethhdr *ethh = (struct ethhdr *) (d_pkt_buffer + 0x1000*curr_index);
+          u_short ip_proto = NTOHS(ethh->h_proto);
+          if (ip_proto == ETH_P_ARP) {
+            desc->read.cmd_type_len |= 60;
+            // TODO
+            desc->read.olinfo_status = 0xf0000;
+          } else if(ip_proto == ETH_P_IP) {
+            desc->read.cmd_type_len |= 98;
+            // TODO
+            // temporal value for ping msgs
+            desc->read.olinfo_status = 0x188000;
+            //printf("%p %p\n", &(desc->read.cmd_type_len), &(desc->read.olinfo_status));
+          } else {
+            desc->read.cmd_type_len |= 60;
+            desc->read.olinfo_status = 0xf0000;
+          }
+      	//	DumpPacket((uint8_t*)d_pkt_buffer+ 0x1000*curr_index, 60);
+				//	printf("CKJUNG__tx_index = %d\n", curr_index);
+				//	printf("CKJUNG________________tx_index = %d\n", curr_index);
+          tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
+					// CKJUNG 18.03.11
+#if 0
+					if (curr_index != 0){
+          	*(uint16_t*)(d_pkt_buffer+ 0x1000*(curr_index-1)) = 0;
+					}else if(curr_index == 0){  // For clarity
+          	*(uint16_t*)(d_pkt_buffer+ 0x1000*(512)) = 0;
+					}
+#endif
+          *(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(curr_index + 1);
+          //*(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(curr_index);
+          //uint32_t curr_tx_index_q_zero = *(volatile unsigned int *)tx_tail_for_queue_zero;
+          printf("TX_______curr_index: %u\n", curr_index);
+
+          *(uint16_t*)(d_pkt_buffer+ 0x1000*(curr_index)) = 0;
+          // TODO cleaning sent data
+          //*(uint16_t*)(d_pkt_buffer+ 0x1000*curr_index) = 0;
+          //break;
+        }
+      }
+      COMPILER_BARRIER();
+#endif
+      //__threadfence_system();
+    }
+    printf("[%s][%d] out tx.\n", __FUNCTION__, __LINE__);
+  } END_SINGLE_THREAD_PART;
+}
+
+#else
 
 __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status_table, volatile uint8_t* io_addr, volatile union ixgbe_adv_tx_desc* tx_desc, volatile int* num_turns)
 {
-  
-  if(blockIdx.x == 0) {
-#if 1
+  while(*num_turns < NUM_TURN) {
     BEGIN_SINGLE_THREAD_PART {
-      while(*num_turns < NUM_TURN) {
-        while(!readNoCache(&tb_status_table[TX_TB])) { } 
-        //printf("TX [%2d,%2d]\n", blockIdx.x, threadIdx.x);
-        tb_status_table[TX_TB]=0;
-
-        //volatile unsigned char* tx_packet = &d_pkt_buffer[0x1000*threadIdx.x];
-        //DumpPacket((uint8_t*)tx_packet, 60);
-#if 1
-        COMPILER_BARRIER();
-        for(int i=0; i<512; i++) {
-          if(*(uint16_t*)(d_pkt_buffer+ 0x1000*i) != 0) {
-            //printf("%dth memory, tx handler finds a packet to send.\n", i);
-            //DumpPacket((uint8_t*)(d_pkt_buffer+0x1000*i), 60);
-
-            // TODO: currently, back to back. batching need to be implemented
-            //printf("TX: Try to send packets using %dth tx_desc.\n",i);
-            //printf("tx_tail_for_queue_zero:%p\n", tx_tail_for_queue_zero);
-            volatile union ixgbe_adv_tx_desc *desc = tx_desc + i;
-            struct ethhdr *ethh = (struct ethhdr *) (d_pkt_buffer + 0x1000*i);
-            u_short ip_proto = NTOHS(ethh->h_proto);
-            if (ip_proto == ETH_P_ARP) {
-              desc->read.cmd_type_len |= 60;
-            } else if(ip_proto == ETH_P_IP) {
-              //printf("Sending ETH_P_IP %x\n", desc->read.cmd_type_len);
-              desc->read.cmd_type_len |= 60;
-            } else {
-              desc->read.cmd_type_len |= 60;
-            }
-            desc->read.olinfo_status = 0xf0000;
-            tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
-            *(uint16_t*)(d_pkt_buffer+ 0x1000*(i-1)) = 0;
-            *(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(i + 1);
-            //uint32_t curr_tx_index_q_zero = *(volatile unsigned int *)tx_tail_for_queue_zero;
-            //printf("curr_tx_index_q_zero: %u\n", curr_tx_index_q_zero);
-
-            // TODO cleaning sent data
-          }
-        }
-      COMPILER_BARRIER();
-#endif
-        //__threadfence_system();
-      }
+      while(!readNoCache(&tb_status_table[TX_TB])) { } 
+      tb_status_table[TX_TB]=0;
     } END_SINGLE_THREAD_PART;
-#else
-    while(*num_turns < NUM_TURN) { 
-      while(!readNoCache(tb_status_table + 3)) { } 
-      tb_status_table[3]=0;
-
-      volatile unsigned char* tx_packet = &d_pkt_buffer[0x1000*threadIdx.x];
-      if(*((uint16_t*)tx_packet) != 0) {
-          DumpPacket((uint8_t*)(tx_packet), 60);
-        }
+    __syncthreads();
+#if 1
+    int my_index = threadIdx.x;
+		if(*(uint16_t*)(d_pkt_buffer+ 0x1000*my_index) != 0) {
+//			printf("CKJUNG___tx_handler___buf_index: %d\n", my_index);
+			volatile union ixgbe_adv_tx_desc *desc = tx_desc + my_index;
+			struct ethhdr *ethh = (struct ethhdr *) (d_pkt_buffer + 0x1000*my_index);
+      u_short ip_proto = NTOHS(ethh->h_proto);
+      if (ip_proto == ETH_P_ARP) {
+        desc->read.cmd_type_len |= 60;
+        // TODO
+        desc->read.olinfo_status = 0xf0000;
+      } else if(ip_proto == ETH_P_IP) {
+        desc->read.cmd_type_len |= 98;
+        // TODO
+        // temporal value for ping msgs
+        desc->read.olinfo_status = 0x188000;
+        //printf("%p %p\n", &(desc->read.cmd_type_len), &(desc->read.olinfo_status));
+      } else {
+        desc->read.cmd_type_len |= 60;
+        desc->read.olinfo_status = 0xf0000;
       }
-      //__threadfence_system();
-    BEGIN_SINGLE_THREAD_PART {
       tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
-    } END_SINGLE_THREAD_PART;
+      // TODO: following code is wrong
+			*(uint16_t*)(d_pkt_buffer+ 0x1000*(my_index-1)) = 0;
+      *(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(my_index + 1);
+		//	printf("CKJUNG__tx_index: %d\n", my_index);
+      //*(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(my_index);
+		//	*(uint16_t*)(d_pkt_buffer+ 0x1000*(my_index)) = 0;
+    }
 #endif
   }
+  //printf("[%s][%d] out tx.\n", __FUNCTION__, __LINE__);
 }
+#endif
+
+__device__ void cuda_sleep(float num)
+{
+	clock_t start = clock64();
+	clock_t now;
+	for (;;) {
+		now = clock64();
+//		clock_t cycles = now > start ? now - start : now + (0xffffffff - start);
+//		if (cycles >= 10000) {
+		if (((float)(now-start))/CLOCKS_PER_SEC > num){
+			//printf("num: %f, time: %f sec.\n", num,  ((float)(now-start))/CLOCKS_PER_SEC);
+	//		printf("time: %f sec.\n",(float)clock());
+			break;
+		}
+	}
+}
+
+// CKJUNG 18.03.02
+__global__ void chk_buf(volatile unsigned char* d_pkt_buffer)
+{
+	//clock_t cur;
+	for (int i = 0; i < 50; i++) {
+		//cuda_sleep(100.0);	
+		printf("--------------------\n");
+		for(int j = 0; j < 512; j++) {
+			if(*(uint16_t*)(d_pkt_buffer+ 0x1000*j) != 0) {
+				printf("buf_idx: %d\n", j);
+				DumpPacket((uint8_t*)(d_pkt_buffer + 0x1000*j), 98);
+			}
+		}
+		printf("--------------------\n");
+		cuda_sleep(100.0);	
+	}
+}
+// ~CKJUNG
 
 __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status_table, char *bm_worked_thread, volatile int* num_turns, int fd, unsigned char* d_pkt_processing_queue) // bm: bitmap
 {
   *num_turns = 0;
   //volatile unsigned char * d_mem = (volatile unsigned char*)d_pkt_buffer;
   tb_status_table[RX_TB] = 0;
+  tb_status_table[PP_TB] = 0;
+  tb_status_table[TX_TB] = 0;
   volatile unsigned char* rx_buf = d_pkt_buffer + offset_for_rx;
 
+#if 0
   if(blockIdx.x == 0) {
+#if 0
     BEGIN_SINGLE_THREAD_PART {
-      //printf("Entering rx_handler. (Block ID:%d)\n", blockIdx.x);
+      printf("Entering rx_handler. (Block ID:%d)\n", blockIdx.x);
       int mem_index = 0; // why 12??
       while(*num_turns < NUM_TURN) { 
         if(readNoCache(((uint16_t*)&rx_buf[mem_index])) != 0 ) {
@@ -1105,6 +1245,20 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
         }
       }
     } END_SINGLE_THREAD_PART;
+#else
+    //printf("Entering rx_handler. (Block ID:%d)\n", blockIdx.x);
+    int mem_index = 0x1000*threadIdx.x;
+    while(*num_turns < NUM_TURN) { 
+      if(readNoCache(((uint16_t*)&rx_buf[mem_index])) != 0 ) {
+        //for(int i=0; i<120; i=i+2) {
+        //  printf("%d:0x%02x%02x\n", i, rx_buf[mem_index+i],rx_buf[mem_index+i+1]);
+        //}
+        //printf("1[%2d,%2d] %d, %d\n", blockIdx.x, threadIdx.x, readNoCache((uint16_t*)&rx_buf[mem_index]), mem_index);
+        //printf("Setting tb_status_table[1] = 1 %d(%d)\n", (uint16_t)rx_buf[mem_index], threadIdx.x);
+        tb_status_table[RX_TB] = 1;
+      }
+    }
+#endif
   } else {
     while(*num_turns < NUM_TURN) {
       while(!readNoCache(&tb_status_table[RX_TB])) { } 
@@ -1137,6 +1291,60 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 #endif
     }
   }
+#else
+  
+  while(*num_turns < NUM_TURN) {
+    //while(!readNoCache(&tb_status_table[RX_TB])) { } 
+    //__threadfence_system();
+    //int mem_index = 0x1000 * threadIdx.x;
+		// CKJUNG 18.03.13
+    int mem_index = 0x1000 * threadIdx.x;
+    if(readNoCache((uint16_t*)&rx_buf[mem_index]) != 0) {
+		//	printf("CKJUNG__mem_index = %d\n", threadIdx.x);
+      //DumpPacket((uint8_t*)&rx_buf[mem_index], 60);
+			//printf("CKJUNG__rx_index = %d\n", threadIdx.x);
+      memcpy(d_pkt_processing_queue + mem_index, (const void*)(rx_buf + mem_index), 0x1000);
+#if 0
+      clock_t start = clock();
+      clock_t now;
+      for (;;) {
+        now = clock();
+        clock_t cycles = now > start ? now - start : now + (0xffffffff - start);
+        if (cycles >= 10000) {
+          break;
+        }
+      }
+#endif
+      //printf("RX [%2d,%2d] status:%d num_turn:%d(%d) in buf:%x\n", blockIdx.x, threadIdx.x, tb_status_table[0], *num_turns, NUM_TURN, rx_buf[mem_index]);
+      //for(int i=mem_index; i<mem_index+0x1000; i++) {
+       // rx_buf[i] = 0;
+      //}
+      rx_buf[mem_index] = 0;
+      rx_buf[mem_index+1] = 0; // CKJUNG 18.03.13 Why do we need this?
+      //bm_worked_thread[threadIdx.x] = 1;
+      (*num_turns)++;
+      tb_status_table[PP_TB] = 1; // set for pp
+    }
+    //__threadfence_system();
+#if 0
+    BEGIN_SINGLE_THREAD_PART {
+      //printf("[%2d,%2d] %d from %d\n", blockIdx.x, threadIdx.x, tb_status_table[blockIdx.x], *num_turns);
+      //__threadfence_system();
+      //tb_status_table[RX_TB] = 0; // set for rx
+      //tb_status_table[PP_TB] = 1; // set for pp
+      int num_worked_threads = 0;
+     // for(int i=0; i<NUM_THREADS; i++) {
+     //   if(bm_worked_thread[i]) {
+     //     num_worked_threads++;
+     //     bm_worked_thread[i] = 0;
+     //   }
+     // }
+      //printf("RX [%2d,%2d] %d from %d, num_worked_threads:%d\n", blockIdx.x, threadIdx.x, tb_status_table[RX_TB], *num_turns, num_worked_threads);
+    } END_SINGLE_THREAD_PART;
+#endif
+  }
+
+#endif
 }
 
 
@@ -1144,7 +1352,7 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 
 __global__ void doorbell_test(void * io_addr, void * desc, uint32_t curr, int* d_mem, int size)
 {
-  //printf("[%s][%d]\n", __FUNCTION__, __LINE__);
+  printf("[%s][%d]\n", __FUNCTION__, __LINE__);
   if (blockIdx.x == 0) {
     BEGIN_SINGLE_THREAD_PART {
       printf("[%s][%d] in doorbell_test First Block.\n", __FUNCTION__, __LINE__);
@@ -1246,7 +1454,7 @@ void yhoon_finalizer(void* ixgbe_bar0_host_addr, ixgbe_adv_tx_desc* desc_addr)
   munmap(ixgbe_bar0_host_addr, IXGBE_BAR0_SIZE*5);
 }
 
-
+#if 0
 void yhoon_xmit_arp(int *d_mem, int size, int fd)
 {
   printf("[%s][%d]START---yhoon_xmit_arp------------HOST.\n", __FUNCTION__, __LINE__);
@@ -1298,7 +1506,9 @@ void yhoon_xmit_arp(int *d_mem, int size, int fd)
   // ~YHOON
   printf("[%s][%d]END-----yhoon_xmit_arp------------HOST.\n", __FUNCTION__, __LINE__);
 }
+#endif
 
+#if 0
 void check_data(int size, unsigned char* h_mem, int* d_A)
 {
   printf("[%s][%d] BEGINS--------------------------------------------------------------------------------\n", __FUNCTION__, __LINE__);
@@ -1336,16 +1546,30 @@ void check_data(int size, unsigned char* h_mem, int* d_A)
   printf("[%s][%d] dirty_cnt:[%d]\n", __FUNCTION__ , __LINE__, dirty_cnt);
   printf("[%s][%d] ENDS\n\n\n\n", __FUNCTION__, __LINE__);
 }
+#endif
+
+__global__ void init_data(int num_turn)
+{
+  NUM_TURN = num_turn;  
+}
 
 int main(int argc, char *argv[])
 {
+  //int num_turn = 10;
+  int num_turn = 20;
+#if 1
+  if(argc != 1) {
+    num_turn = atoi(argv[1]);
+  }
+#endif
+
   printf("[%s][%d] main\n", __FUNCTION__, __LINE__);
   int dev_id = 0;
   size_t _pkt_buffer_size = 2*512*4096; // 4MB, for rx,tx ring
 
   // CKJUNG, meaning of this?
   size_t pkt_buffer_size = (_pkt_buffer_size + GPU_PAGE_SIZE - 1) & GPU_PAGE_MASK;
-  //printf("[%s][%d]____CKJUNG__pkt_buffer_size: %lu\n", __FUNCTION__, __LINE__, pkt_buffer_size);
+  printf("[%s][%d]____CKJUNG__pkt_buffer_size: %lu\n", __FUNCTION__, __LINE__, pkt_buffer_size);
 
   int n_devices = 0;
 
@@ -1367,10 +1591,13 @@ int main(int argc, char *argv[])
 
   unsigned char* d_pkt_buffer;
   unsigned char* d_pkt_processing_queue;
+	// CKJUNG 18.03.01
+  //ASSERTRT(cudaMalloc((void**)&d_pkt_buffer, pkt_buffer_size));
   ASSERTRT(cudaMalloc((void**)&d_pkt_buffer, pkt_buffer_size));
-  ASSERTRT(cudaMalloc((void**)&d_pkt_processing_queue, 4*pkt_buffer_size));
+  ASSERTRT(cudaMalloc((void**)&d_pkt_processing_queue, pkt_buffer_size));
+  //ASSERTRT(cudaMemset(d_pkt_buffer, 0, pkt_buffer_size));
   ASSERTRT(cudaMemset(d_pkt_buffer, 0, pkt_buffer_size));
-  ASSERTRT(cudaMemset(d_pkt_processing_queue, 0, 4*pkt_buffer_size));
+  ASSERTRT(cudaMemset(d_pkt_processing_queue, 0, pkt_buffer_size));
  
   unsigned int flag = 1;
   ASSERTDRV(cuPointerSetAttribute(&flag, CU_POINTER_ATTRIBUTE_SYNC_MEMOPS, (CUdeviceptr) d_pkt_buffer));
@@ -1408,13 +1635,21 @@ int main(int argc, char *argv[])
   ixgbe_adv_tx_desc* desc_addr=0;
   int fd = tx_rx_ring_setup();
   yhoon_initializer(fd, ixgbe_bar0_host_addr, desc_addr, &io_addr, &tx_desc);
+  init_data<<< 1,1>>> (num_turn);
 
 	cudaStream_t cuda_stream1;
-  ASSERT_CUDA(cudaStreamCreate(&cuda_stream1));
+  //ASSERT_CUDA(cudaStreamCreate(&cuda_stream1));
+  ASSERT_CUDA(cudaStreamCreateWithFlags(&cuda_stream1,cudaStreamNonBlocking));
 	cudaStream_t cuda_stream2;
-  ASSERT_CUDA(cudaStreamCreate(&cuda_stream2));
+  //ASSERT_CUDA(cudaStreamCreate(&cuda_stream2));
+  ASSERT_CUDA(cudaStreamCreateWithFlags(&cuda_stream2,cudaStreamNonBlocking));
 	cudaStream_t cuda_stream3;
-  ASSERT_CUDA(cudaStreamCreate(&cuda_stream3));
+  //ASSERT_CUDA(cudaStreamCreate(&cuda_stream3));
+  ASSERT_CUDA(cudaStreamCreateWithFlags(&cuda_stream3,cudaStreamNonBlocking));
+
+	cudaStream_t cuda_stream4;                                                  
+	//ASSERT_CUDA(cudaStreamCreate(&cuda_stream3));                             
+	ASSERT_CUDA(cudaStreamCreateWithFlags(&cuda_stream4,cudaStreamNonBlocking));
 
 	int *dev_tb_status_table, *num_turns;
   char *bm_worked_thread;
@@ -1423,17 +1658,30 @@ int main(int argc, char *argv[])
   ASSERTRT(cudaMalloc((void**)&num_turns, sizeof(int)));
   ASSERTRT(cudaMalloc((void**)&bm_worked_thread, NUM_THREADS * sizeof(char)));
 
-  clean_buffer<<< 1, 1 >>> (d_pkt_buffer, d_pkt_processing_queue, pkt_buffer_size, bm_worked_thread);
+  clean_buffer<<< 1, 1 >>> (d_pkt_buffer, d_pkt_processing_queue, pkt_buffer_size, bm_worked_thread, dev_tb_status_table);
 
   if(cudaSuccess != cudaDeviceSynchronize())
 	  cudaCheckErrors("cudaDeviceSynchronize Error"); 
 
 #if 1
-  rx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream1 >>> (d_pkt_buffer, dev_tb_status_table, bm_worked_thread, num_turns, fd, d_pkt_processing_queue);
+  printf("PP\n");
   packet_processor<<< NUM_TB, NUM_THREADS, 0, cuda_stream2 >>> (d_pkt_processing_queue, d_pkt_buffer, dev_tb_status_table, num_turns, (volatile uint8_t *)io_addr);
-  tx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
-#endif
+  //usleep(1*1000*1000);
+  printf("RX\n");
+  rx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream1 >>> (d_pkt_buffer, dev_tb_status_table, bm_worked_thread, num_turns, fd, d_pkt_processing_queue);
+  //usleep(1*1000*1000);
+  printf("TX\n");
+  //tx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
 
+  tx_handler<<< NUM_TB, 1, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
+	
+#endif
+#if 0
+	// 	CKJUNG ~ 18.03.02
+	printf("CHK\n");
+	chk_buf<<< NUM_TB, 1, 0, cuda_stream4 >>> (d_pkt_buffer);
+	// ~CKJUNG
+#endif
   // call ixgbe_xmit_yhoon in ixgbe_main.c
   //yhoon_xmit_arp(d_pkt_buffer, pkt_buffer_size, fd);
 
@@ -1455,11 +1703,18 @@ int main(int argc, char *argv[])
  
   if(cudaSuccess != cudaDeviceSynchronize())
 	  cudaCheckErrors("cudaDeviceSynchronize Error"); 
-
+  cudaStreamDestroy(cuda_stream1);
+  cudaStreamDestroy(cuda_stream2);
+  cudaStreamDestroy(cuda_stream3);
   yhoon_finalizer(ixgbe_bar0_host_addr, desc_addr);
 
   ASSERT_CUDA(cudaFree(dev_tb_status_table));
   ASSERT_CUDA(cudaFree(d_pkt_buffer));
+	// CKJUNG ~ 18.02.23
+	ASSERT_CUDA(cudaFree(bm_worked_thread));
+	ASSERT_CUDA(cudaFree(num_turns));
+	ASSERT_CUDA(cudaFree(d_pkt_processing_queue));
+	close(fd);
   return 0;
 }
 
