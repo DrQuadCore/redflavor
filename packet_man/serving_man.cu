@@ -750,7 +750,8 @@ IPOutputStandalone(unsigned char* d_tx_pkt_buffer, uint8_t protocol,
   uint8_t src_haddr[ETH_ALEN] = {0xa0, 0x36, 0x9f, 0x03, 0x13, 0x86};
   // hw addr for yoon
   //uint8_t dst_haddr[ETH_ALEN] = {0x3c, 0xa3, 0x15, 0x04, 0x88, 0xd3};
-  uint8_t dst_haddr[ETH_ALEN] = {0x3c, 0xa3, 0x15, 0x04, 0x86, 0x76};
+  //uint8_t dst_haddr[ETH_ALEN] = {0x3c, 0xa3, 0x15, 0x04, 0x86, 0x76};
+  uint8_t dst_haddr[ETH_ALEN] = {0x00, 0x1b, 0x21, 0xbc, 0x11, 0x52};
 	iph = (struct iphdr *)EthernetOutput(d_tx_pkt_buffer, ETH_P_IP, src_haddr, dst_haddr, payloadlen + IP_HEADER_LEN);
 	if (!iph) {
 		return NULL;
@@ -1005,6 +1006,9 @@ __device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned
 
 __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned char* d_tx_pkt_buffer, int * tb_status_table, volatile int* num_turns, volatile uint8_t* io_addr)
 {
+	// CKJUNG 18.03.17
+	unsigned char* rx_buf = d_tx_pkt_buffer + offset_for_rx;
+	// ~CKJUNG
   if(blockIdx.x == 0) {
     BEGIN_SINGLE_THREAD_PART {
     // can be placed somewhere else.
@@ -1017,10 +1021,12 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
       } 
       // currently d_curr_of_processing_queue is fixed to zero.
       //unsigned char* rx_packet = &d_pkt_processing_queue[d_curr_of_processing_queue * 512 * 0x1000 + 0x1000*threadIdx.x];
-      unsigned char* rx_packet = &d_pkt_processing_queue[d_curr_of_processing_queue + 0x1000*threadIdx.x];
+      //unsigned char* rx_packet = &d_pkt_processing_queue[d_curr_of_processing_queue + 0x1000*threadIdx.x];
+      unsigned char* rx_packet = &rx_buf[d_curr_of_processing_queue + 0x1000*threadIdx.x];
       unsigned char* tx_packet = &d_tx_pkt_buffer[0x1000*threadIdx.x];
       //__threadfence_system();
       if(*(uint16_t*)(rx_packet+12) != 0) {
+				clock_t start = clock64();
         struct ethhdr *ethh = (struct ethhdr *)rx_packet;
         u_short ip_proto = NTOHS(ethh->h_proto);
         if (ip_proto == ETH_P_ARP) {
@@ -1031,12 +1037,14 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
           ProcessIPv4Packet(tx_packet, rx_packet, 1500);
           //printf("[%s][%d] %d thread setting tx packet for IP\n", __FUNCTION__, __LINE__, threadIdx.x);
         } else {
-          printf("[%s][%d] %d thread unknown protocol\n", __FUNCTION__, __LINE__, threadIdx.x);
-        }
-        //DumpPacket((uint8_t*)tx_packet, 60);
-        *(uint16_t*)(rx_packet+12) = 0;
-      } else {
-        //printf("[%s][%d] %d thread not set\n", __FUNCTION__, __LINE__, threadIdx.x);
+					printf("[%s][%d] %d thread unknown protocol\n", __FUNCTION__, __LINE__, threadIdx.x);
+				}
+				//DumpPacket((uint8_t*)tx_packet, 60);
+				*(uint16_t*)(rx_packet+12) = 0;
+				// CKJUNG 18.03.17
+//				printf("PP_time: %f ms.\n", (float)((clock64() - start)/810500000.0)*1000.0);
+			} else {
+				//printf("[%s][%d] %d thread not set\n", __FUNCTION__, __LINE__, threadIdx.x);
       }
      // __threadfence();
 
@@ -1054,7 +1062,7 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
 
 __device__ int tx_curr = 0;
 
-#if 1
+#if 0
 __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status_table, volatile uint8_t* io_addr, volatile union ixgbe_adv_tx_desc* tx_desc, volatile int* num_turns)
 {
   BEGIN_SINGLE_THREAD_PART {
@@ -1106,14 +1114,6 @@ __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 				//	printf("CKJUNG__tx_index = %d\n", curr_index);
 				//	printf("CKJUNG________________tx_index = %d\n", curr_index);
           tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
-					// CKJUNG 18.03.11
-#if 0
-					if (curr_index != 0){
-          	*(uint16_t*)(d_pkt_buffer+ 0x1000*(curr_index-1)) = 0;
-					}else if(curr_index == 0){  // For clarity
-          	*(uint16_t*)(d_pkt_buffer+ 0x1000*(512)) = 0;
-					}
-#endif
           *(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(curr_index + 1);
           //*(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(curr_index);
           //uint32_t curr_tx_index_q_zero = *(volatile unsigned int *)tx_tail_for_queue_zero;
@@ -1146,7 +1146,9 @@ __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 #if 1
     int my_index = threadIdx.x;
 		if(*(uint16_t*)(d_pkt_buffer+ 0x1000*my_index) != 0) {
-//			printf("CKJUNG___tx_handler___buf_index: %d\n", my_index);
+			// CKJUNG 18.03.17
+			clock_t start = clock64();
+			// ~CKJUNG 
 			volatile union ixgbe_adv_tx_desc *desc = tx_desc + my_index;
 			struct ethhdr *ethh = (struct ethhdr *) (d_pkt_buffer + 0x1000*my_index);
       u_short ip_proto = NTOHS(ethh->h_proto);
@@ -1166,11 +1168,16 @@ __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
       }
       tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
       // TODO: following code is wrong
-			*(uint16_t*)(d_pkt_buffer+ 0x1000*(my_index-1)) = 0;
+			//*(uint16_t*)(d_pkt_buffer+ 0x1000*(my_index-1)) = 0;
+
+			// CKJUNG 18.03.17
+//			printf("Tx_time: %f ms.\n", (float)((clock64() - start)/810500000.0)*1000.0);
       *(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(my_index + 1);
-		//	printf("CKJUNG__tx_index: %d\n", my_index);
+      //DumpPacket((uint8_t*)d_pkt_buffer+ 0x1000*(my_index), 60);
+			printf("CKJUNG__tx_index: %d\n", my_index);
       //*(volatile unsigned long*) tx_tail_for_queue_zero = (unsigned long)(my_index);
 		//	*(uint16_t*)(d_pkt_buffer+ 0x1000*(my_index)) = 0;
+			*(uint16_t*)(d_pkt_buffer+ 0x1000*(my_index)) = 0;
     }
 #endif
   }
@@ -1300,10 +1307,13 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 		// CKJUNG 18.03.13
     int mem_index = 0x1000 * threadIdx.x;
     if(readNoCache((uint16_t*)&rx_buf[mem_index]) != 0) {
+			clock_t start = clock64();
 		//	printf("CKJUNG__mem_index = %d\n", threadIdx.x);
       //DumpPacket((uint8_t*)&rx_buf[mem_index], 60);
 			//printf("CKJUNG__rx_index = %d\n", threadIdx.x);
-      memcpy(d_pkt_processing_queue + mem_index, (const void*)(rx_buf + mem_index), 0x1000);
+//			printf("RX_time1: %f ms.\n", (float)((clock64() - start)/810500000.0)*1000.0);
+			// CKJUNG 18.03.17
+      //memcpy(d_pkt_processing_queue + mem_index, (const void*)(rx_buf + mem_index), 0x100);
 #if 0
       clock_t start = clock();
       clock_t now;
@@ -1319,11 +1329,13 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
       //for(int i=mem_index; i<mem_index+0x1000; i++) {
        // rx_buf[i] = 0;
       //}
+      //rx_buf[mem_index] = 0;
       rx_buf[mem_index] = 0;
       rx_buf[mem_index+1] = 0; // CKJUNG 18.03.13 Why do we need this?
       //bm_worked_thread[threadIdx.x] = 1;
       (*num_turns)++;
       tb_status_table[PP_TB] = 1; // set for pp
+	//		printf("RX_time3: %f ms.\n", (float)((clock64() - start)/810500000.0)*1000.0);
     }
     //__threadfence_system();
 #if 0
@@ -1566,7 +1578,8 @@ int main(int argc, char *argv[])
   printf("[%s][%d] main\n", __FUNCTION__, __LINE__);
   int dev_id = 0;
   size_t _pkt_buffer_size = 2*512*4096; // 4MB, for rx,tx ring
-
+	
+	
   // CKJUNG, meaning of this?
   size_t pkt_buffer_size = (_pkt_buffer_size + GPU_PAGE_SIZE - 1) & GPU_PAGE_MASK;
   printf("[%s][%d]____CKJUNG__pkt_buffer_size: %lu\n", __FUNCTION__, __LINE__, pkt_buffer_size);
@@ -1585,6 +1598,12 @@ int main(int argc, char *argv[])
   }
   OUT << "selecting device " << dev_id << endl;
   OUT << "_pkt_buffer_size: " << _pkt_buffer_size << "  pkt_buffer_size: " << pkt_buffer_size << endl;
+
+	//CKJUNG 18.03.17
+	int peak_clk = 1; // in kHz
+	ASSERTRT(cudaDeviceGetAttribute(&peak_clk, cudaDevAttrClockRate, dev_id));
+	OUT << "GPU___Peak_clockrate:" << peak_clk << " kHz" << endl;
+	// ~CKJUNG
 
   ASSERTRT(cudaSetDevice(dev_id));
   ASSERTRT(cudaSetDeviceFlags(cudaDeviceMapHost));
@@ -1671,9 +1690,9 @@ int main(int argc, char *argv[])
   rx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream1 >>> (d_pkt_buffer, dev_tb_status_table, bm_worked_thread, num_turns, fd, d_pkt_processing_queue);
   //usleep(1*1000*1000);
   printf("TX\n");
-  //tx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
+  tx_handler<<< NUM_TB, NUM_THREADS, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
 
-  tx_handler<<< NUM_TB, 1, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
+ // tx_handler<<< NUM_TB, 1, 0, cuda_stream3 >>> (d_pkt_buffer, dev_tb_status_table, (volatile uint8_t*)io_addr, (volatile union ixgbe_adv_tx_desc*) tx_desc, num_turns);
 	
 #endif
 #if 0
