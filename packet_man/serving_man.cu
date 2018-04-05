@@ -254,6 +254,25 @@ __device__ uint8_t * EthernetOutput(uint8_t *buf, uint16_t h_proto, unsigned cha
 
 
 __device__ void 
+DumpUDPPacket(const char* type, struct udphdr *udph, uint32_t saddr, uint32_t daddr)
+{
+  uint8_t* _saddr = (uint8_t*) &saddr;
+  uint8_t* _daddr = (uint8_t*) &daddr;
+
+	printf("UDP header: \n");
+
+  printf("Sender IP: %u.%u.%u.%u\n",
+      *_saddr++, *_saddr++, *_saddr++, *_saddr);
+  printf("Source Port: %u\n", NTOHS(udph->source));
+  printf("Target IP: %u.%u.%u.%u\n",
+      *_daddr++, *_daddr++, *_daddr++, *_daddr);
+  printf("Dest Port: %u\n", NTOHS(udph->dest));
+  printf("Length: %u\n", NTOHS(udph->len));
+  printf("Checksum: %u\n", NTOHS(udph->check));
+}
+
+
+__device__ void 
 DumpICMPPacket(const char* type, struct icmphdr *icmph, uint32_t saddr, uint32_t daddr)
 {
   uint8_t* _saddr = (uint8_t*) &saddr;
@@ -891,6 +910,41 @@ ProcessICMPECHORequest(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int le
   return ret;
 }
 
+__device__ int d_count;
+
+__device__ int ProcessUDPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
+{
+  //printf("[%s][%d] [INFO] UDP received\n", __FUNCTION__, __LINE__);
+
+	struct udphdr *recv_udph = (struct udphdr *) IP_NEXT_PTR(iph);
+  // following is a test code for udp_client_echo.c from network-testing
+
+  uint16_t* _saddr = (uint16_t*)&(iph->saddr);
+  uint16_t* _daddr = (uint16_t*)&(iph->daddr);
+  uint32_t saddr = 0;
+  uint32_t daddr = 0;
+  memcpy(&saddr, _saddr, 4);
+  memcpy(&daddr, _daddr, 4);
+
+	struct udphdr *udph = (struct udphdr *)IPOutputStandalone(
+      d_tx_pkt_buffer, IPPROTO_UDP, 0, daddr, saddr, len - sizeof(struct iphdr));
+  udph->source = recv_udph->dest;
+  udph->dest= recv_udph->source;
+
+	if (len > 0)
+		memcpy((void *)(udph + 1), recv_udph + 1, len);
+
+  udph->len = HTONS(NTOHS(len) - sizeof(struct iphdr));
+
+  udph->check = recv_udph->check;
+
+  //DumpUDPPacket("rx", recv_udph, saddr, daddr);
+  //DumpUDPPacket("tx", udph, daddr, saddr);
+  //printf("iplen: %u, udplen: %u\n iphdrlen: %u", len, NTOHS(udph->len), sizeof(struct iphdr));
+  //printf("udphdrlen: %u, tcplen: %u\n iphdrlen: %u", sizeof(struct udphdr), sizeof(struct tcphdr), sizeof(struct iphdr));
+ 
+}
+
 __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *iph, int len)
 {
   //uint8_t* _saddr = (uint8_t*) &(iph->saddr);
@@ -947,9 +1001,9 @@ __device__ int ProcessICMPPacket(unsigned char* d_tx_pkt_buffer, struct iphdr *i
 }
 
 
-__device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned char *pkt_data, int len)
+__device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned char *pkt_data)
 {
-  //printf("[%s][%d]\n",__FUNCTION__, __LINE__);
+  printf("[%s][%d] thread_id:%d\n",__FUNCTION__, __LINE__, threadIdx.x);
 	/* check and process IPv4 packets */
 	struct iphdr* iph = (struct iphdr *)(pkt_data + sizeof(struct ethhdr));
 	int ip_len = NTOHS(iph->tot_len);
@@ -995,6 +1049,8 @@ __device__ inline int ProcessIPv4Packet(unsigned char* d_tx_pkt_buffer, unsigned
 #endif
 		case IPPROTO_ICMP:
 			return ProcessICMPPacket(d_tx_pkt_buffer, iph, ip_len);
+		case IPPROTO_UDP:
+			return ProcessUDPPacket(d_tx_pkt_buffer, iph, ip_len);
 		default:
 			/* currently drop other protocols */
       // TODO: define FALSE
@@ -1034,8 +1090,8 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
           //printf("[%s][%d] %d thread setting tx packet for ARP\n", __FUNCTION__, __LINE__, threadIdx.x);
         } else if(ip_proto == ETH_P_IP) {
           // TODO: passing len from below
-          ProcessIPv4Packet(tx_packet, rx_packet, 1500);
-          //printf("[%s][%d] %d thread setting tx packet for IP\n", __FUNCTION__, __LINE__, threadIdx.x);
+          ProcessIPv4Packet(tx_packet, rx_packet);
+          //printf("[%s][%d] %d thread setting tx packet for IP (TURN:%d)\n", __FUNCTION__, __LINE__, threadIdx.x, *num_turns);
         } else {
 					printf("[%s][%d] %d thread unknown protocol\n", __FUNCTION__, __LINE__, threadIdx.x);
 				}
@@ -1043,10 +1099,8 @@ __global__ void packet_processor(unsigned char* d_pkt_processing_queue, unsigned
 				*(uint16_t*)(rx_packet+12) = 0;
 				// CKJUNG 18.03.17
 //				printf("PP_time: %f ms.\n", (float)((clock64() - start)/810500000.0)*1000.0);
-			} else {
-				//printf("[%s][%d] %d thread not set\n", __FUNCTION__, __LINE__, threadIdx.x);
-      }
-     // __threadfence();
+			} 
+      //__threadfence();
 
       tb_status_table[TX_TB] = 1; // set for tx 
       tb_status_table[PP_TB] = 0; // set for pp
@@ -1137,6 +1191,10 @@ __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 
 __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status_table, volatile uint8_t* io_addr, volatile union ixgbe_adv_tx_desc* tx_desc, volatile int* num_turns)
 {
+  BEGIN_SINGLE_THREAD_PART {
+    d_count = 0;
+  } END_SINGLE_THREAD_PART;
+
   while(*num_turns < NUM_TURN) {
     BEGIN_SINGLE_THREAD_PART {
       while(!readNoCache(&tb_status_table[TX_TB])) { } 
@@ -1155,16 +1213,16 @@ __global__ void tx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
       if (ip_proto == ETH_P_ARP) {
         desc->read.cmd_type_len |= 60;
         // TODO
-        desc->read.olinfo_status = 0xf0000;
+        desc->read.olinfo_status = 60 << 14;
       } else if(ip_proto == ETH_P_IP) {
-        desc->read.cmd_type_len |= 98;
+        desc->read.cmd_type_len |= 1042;
         // TODO
         // temporal value for ping msgs
-        desc->read.olinfo_status = 0x188000;
+        desc->read.olinfo_status = 1042 << 14; 
         //printf("%p %p\n", &(desc->read.cmd_type_len), &(desc->read.olinfo_status));
       } else {
         desc->read.cmd_type_len |= 60;
-        desc->read.olinfo_status = 0xf0000;
+        desc->read.olinfo_status = 60 << 14;;
       }
       tx_tail_for_queue_zero = io_addr + IXGBE_TDT(0);
       // TODO: following code is wrong
@@ -1229,7 +1287,7 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
   tb_status_table[TX_TB] = 0;
   volatile unsigned char* rx_buf = d_pkt_buffer + offset_for_rx;
 
-#if 0
+#if 0 // multi threading
   if(blockIdx.x == 0) {
 #if 0
     BEGIN_SINGLE_THREAD_PART {
@@ -1298,7 +1356,7 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 #endif
     }
   }
-#else
+#else // multi threading
   
   while(*num_turns < NUM_TURN) {
     //while(!readNoCache(&tb_status_table[RX_TB])) { } 
@@ -1356,7 +1414,7 @@ __global__ void rx_handler(volatile unsigned char* d_pkt_buffer, int * tb_status
 #endif
   }
 
-#endif
+#endif // multi threading
 }
 
 
